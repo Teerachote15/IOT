@@ -6,6 +6,8 @@ import '../widgets/info_card.dart';
 import '../widgets/room_card.dart';
 import '../widgets/custom_bottom_nav.dart';
 import 'history_screen.dart';
+import '../services/db_service.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -46,110 +48,127 @@ class DashboardContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rooms = [
-      RoomModel(
-        roomName: 'Room A',
-        floor: 'ตึก 1 ชั้น 2',
-        online: true,
-        temperature: 24.8,
-        humidity: 38,
-      ),
-      RoomModel(
-        roomName: 'Room B',
-        floor: 'ตึก 1 ชั้น 2',
-        online: true,
-        temperature: 24.8,
-        humidity: 38,
-      ),
-      RoomModel(
-        roomName: 'Room C',
-        floor: 'ตึก 1 ชั้น 4',
-        online: true,
-        temperature: 24.8,
-        humidity: 38,
-      ),
-      RoomModel(
-        roomName: 'Room D',
-        floor: 'ตึก 1 ชั้น 5',
-        online: false,
-        temperature: 24.8,
-        humidity: 38,
-      ),
-    ];
+    // Live devices stream from RTDB
+    return StreamBuilder<DatabaseEvent>(
+      stream: DBService.devicesStream(),
+      builder: (context, snapshot) {
+        List<RoomModel> rooms = [];
+        double avgTemp = 0;
+        double avgHum = 0;
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'FACILITY OVERVIEW',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey,
+        if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
+          final value = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+          int count = 0;
+          value.forEach((key, v) {
+            if (v is Map) {
+              final last = v['last'] ?? v['last_command'] ?? v;
+              double t = 0;
+              double h = 0;
+              bool online = true;
+              if (last is Map) {
+                t = (last['temperature'] != null)
+                    ? double.tryParse(last['temperature'].toString()) ?? 0
+                    : 0;
+                h = (last['humidity'] != null)
+                    ? double.tryParse(last['humidity'].toString()) ?? 0
+                    : 0;
+              }
+
+              rooms.add(RoomModel(
+                roomName: key.toString(),
+                floor: '-',
+                online: online,
+                temperature: t,
+                humidity: h,
+              ));
+
+              avgTemp += t;
+              avgHum += h;
+              count++;
+            }
+          });
+
+          if (count > 0) {
+            avgTemp = avgTemp / count;
+            avgHum = avgHum / count;
+          }
+        }
+
+        return Scaffold(
+          backgroundColor: Colors.white,
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            elevation: 0,
+            title: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'FACILITY OVERVIEW',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Dashboard',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(1),
+              child: Container(
+                color: Colors.black38,
+                height: 2,
               ),
             ),
-            SizedBox(height: 2),
-            Text(
-              'Dashboard',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(
-            color: Colors.black38,
-            height: 2,
           ),
-        ),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(15),
-        children: [
-          const Row(
+          body: ListView(
+            padding: const EdgeInsets.all(15),
             children: [
-              InfoCard(
-                icon: Icons.thermostat,
-                value: '26.8°',
-                label: 'เฉลี่ย',
-                valueColor: AppColor.orange,
+              Row(
+                children: [
+                  InfoCard(
+                    icon: Icons.thermostat,
+                    value: '${avgTemp.toStringAsFixed(1)}°',
+                    label: 'เฉลี่ย',
+                    valueColor: AppColor.orange,
+                  ),
+                  InfoCard(
+                    icon: Icons.water_drop,
+                    value: '${avgHum.toStringAsFixed(0)}%',
+                    label: 'เฉลี่ย',
+                    valueColor: AppColor.blue,
+                  ),
+                  const InfoCard(
+                    icon: Icons.bolt,
+                    value: '—',
+                    label: 'W รวม',
+                    valueColor: AppColor.purple,
+                  ),
+                ],
               ),
-              InfoCard(
-                icon: Icons.water_drop,
-                value: '48%',
-                label: 'เฉลี่ย',
-                valueColor: AppColor.blue,
+              const SizedBox(height: 20),
+              Container(
+                height: 170,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColor.border),
+                ),
+                child: const Center(
+                  child: Text('Chart'),
+                ),
               ),
-              InfoCard(
-                icon: Icons.bolt,
-                value: '7.5 K',
-                label: 'W รวม',
-                valueColor: AppColor.purple,
-              ),
+              const SizedBox(height: 20),
+              ...rooms.map((room) => RoomCard(room: room)),
             ],
           ),
-          const SizedBox(height: 20),
-          Container(
-            height: 170,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColor.border),
-            ),
-            child: const Center(
-              child: Text('Chart'),
-            ),
-          ),
-          const SizedBox(height: 20),
-          ...rooms.map((room) => RoomCard(room: room)).toList(),
-        ],
-      ),
+        );
+      },
     );
   }
 }

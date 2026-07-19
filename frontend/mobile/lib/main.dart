@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'firebase_options.dart';
 
@@ -13,6 +14,15 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Attempt anonymous sign-in so app can access RTDB if anonymous auth enabled
+  try {
+    if (FirebaseAuth.instance.currentUser == null) {
+      await FirebaseAuth.instance.signInAnonymously();
+    }
+  } catch (e) {
+    // ignore - leave user to sign in via login screen
+  }
 
   runApp(const MyApp());
 }

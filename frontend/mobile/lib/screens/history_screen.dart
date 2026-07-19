@@ -3,6 +3,10 @@ import 'package:fl_chart/fl_chart.dart';
 
 import '../theme/app_color.dart';
 import '../widgets/custom_bottom_nav.dart';
+import '../services/db_service.dart';
+
+import 'package:firebase_database/firebase_database.dart';
+import 'package:intl/intl.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -16,6 +20,42 @@ class _HistoryScreenState extends State<HistoryScreen> {
   String room = "Room A";
 
   int selected = 0;
+
+  List<String> devices = [];
+  List<Map<String, dynamic>> history = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDevices();
+    _loadHistory();
+  }
+
+  Future<void> _loadDevices() async {
+    try {
+      final snapshot = await DBService.devicesRef.get();
+      if (snapshot.exists && snapshot.value != null) {
+        final data = snapshot.value as Map<dynamic, dynamic>;
+        setState(() {
+          devices = data.keys.map((k) => k.toString()).toList();
+          if (devices.isNotEmpty) room = devices[0];
+        });
+        _loadHistory();
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ไม่สามารถโหลดอุปกรณ์: ตรวจสอบสิทธิ์ RTDB')),
+      );
+    }
+  }
+
+  Future<void> _loadHistory() async {
+    if (room.isEmpty) return;
+    final list = await DBService.getHistory(room, limit: 24);
+    setState(() {
+      history = list;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -114,7 +154,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
           DropdownButtonFormField(
 
             value: room,
-
             decoration: InputDecoration(
 
               filled: true,
@@ -125,32 +164,25 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ),
             ),
 
-            items: const [
+            items: devices.isEmpty
+                ? [
+                    const DropdownMenuItem(
+                      value: 'Room A',
+                      child: Text('Room A'),
+                    )
+                  ]
+                : devices
+                    .map((d) => DropdownMenuItem(
+                          value: d,
+                          child: Text(d),
+                        ))
+                    .toList(),
 
-              DropdownMenuItem(
-                value: "Room A",
-                child: Text("Room A"),
-              ),
-
-              DropdownMenuItem(
-                value: "Room B",
-                child: Text("Room B"),
-              ),
-
-              DropdownMenuItem(
-                value: "Room C",
-                child: Text("Room C"),
-              ),
-            ],
-
-            onChanged: (value){
-
+            onChanged: (value) async {
               setState(() {
-
                 room = value!;
-
               });
-
+              await _loadHistory();
             },
           ),
 
@@ -217,21 +249,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
                   LineChartBarData(
 
-                    spots: const [
-
-                      FlSpot(0,20),
-
-                      FlSpot(4,21),
-
-                      FlSpot(8,24),
-
-                      FlSpot(12,23),
-
-                      FlSpot(16,25),
-
-                      FlSpot(20,22),
-
-                    ],
+                    spots: history.asMap().entries.map((e) {
+                      final i = e.key.toDouble();
+                      final item = e.value;
+                      final t = item['temperature'] != null
+                          ? (double.tryParse(item['temperature'].toString()) ?? 0.0)
+                          : 0.0;
+                      return FlSpot(i, t);
+                    }).toList(),
 
                     isCurved: true,
 
@@ -267,38 +292,41 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 DataColumn(label: Text("การใช้ไฟ")),
               ],
 
-              rows: List.generate(
-
-                10,
-
-                (index)=> const DataRow(
-
-                  cells: [
-
-                    DataCell(Text("00:00")),
-
-                    DataCell(Text("20.3°C")),
-
-                    DataCell(Text("49%")),
-
-                    DataCell(Text("1129W")),
-
-                  ],
-                ),
-              ),
+              rows: history.isEmpty
+                  ? List.generate(
+                      5,
+                      (index) => const DataRow(
+                        cells: [
+                          DataCell(Text("--")),
+                          DataCell(Text("--")),
+                          DataCell(Text("--")),
+                          DataCell(Text("--")),
+                        ],
+                      ),
+                    )
+                  : history.reversed.map((item) {
+                      final ts = item['ts'] ?? item['key'];
+                      final date = DateTime.tryParse(ts.toString()) ??
+                          DateTime.fromMillisecondsSinceEpoch(
+                              int.tryParse(ts.toString()) ?? 0);
+                      final timeLabel = DateFormat.Hm().format(date);
+                      final temp = item['temperature']?.toString() ?? '--';
+                      final hum = item['humidity']?.toString() ?? '--';
+                      final watt = item['w']?.toString() ?? '--';
+                      return DataRow(cells: [
+                        DataCell(Text(timeLabel)),
+                        DataCell(Text('$temp°C')),
+                        DataCell(Text('$hum%')),
+                        DataCell(Text('$watt W')),
+                      ]);
+                    }).toList(),
             ),
           )
 
         ],
       ),
 
-      bottomNavigationBar: CustomBottomNav(
-
-        currentIndex: 1,
-
-        onTap: (index){},
-
-      ),
+      // Bottom navigation controlled by parent DashboardScreen
     );
   }
 

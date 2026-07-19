@@ -47,6 +47,7 @@ class DefaultFirebaseOptions {
     projectId: 'iot1-d86f0',
     authDomain: 'iot1-d86f0.firebaseapp.com',
     storageBucket: 'iot1-d86f0.firebasestorage.app',
+    databaseURL: 'https://iot1-d86f0-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
@@ -55,6 +56,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '38213246262',
     projectId: 'iot1-d86f0',
     storageBucket: 'iot1-d86f0.firebasestorage.app',
+    databaseURL: 'https://iot1-d86f0-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyABJiIRnZo6hq4d34IPf5Osch4YLDUVJGU',
@@ -62,6 +64,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '38213246262',
     projectId: 'iot1-d86f0',
     storageBucket: 'iot1-d86f0.firebasestorage.app',
+    databaseURL: 'https://iot1-d86f0-default-rtdb.asia-southeast1.firebasedatabase.app',
     iosBundleId: 'com.example.mobile',
   );
   static const FirebaseOptions macos = FirebaseOptions(
@@ -70,6 +73,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '38213246262',
     projectId: 'iot1-d86f0',
     storageBucket: 'iot1-d86f0.firebasestorage.app',
+    databaseURL: 'https://iot1-d86f0-default-rtdb.asia-southeast1.firebasedatabase.app',
     iosBundleId: 'com.example.mobile',
   );
 
@@ -80,5 +84,6 @@ class DefaultFirebaseOptions {
     projectId: 'iot1-d86f0',
     authDomain: 'iot1-d86f0.firebaseapp.com',
     storageBucket: 'iot1-d86f0.firebasestorage.app',
+    databaseURL: 'https://iot1-d86f0-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
 }
