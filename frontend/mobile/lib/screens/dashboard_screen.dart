@@ -8,6 +8,7 @@ import '../widgets/custom_bottom_nav.dart';
 import 'history_screen.dart';
 import '../services/db_service.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'alerts_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -22,7 +23,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final List<Widget> _pages = const [
     DashboardContent(),
     HistoryScreen(),
-    DashboardContent(),
+    AlertsScreen(),
     DashboardContent(),
   ];
 

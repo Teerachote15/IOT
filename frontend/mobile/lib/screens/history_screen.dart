@@ -74,22 +74,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
           children: [
 
             Text(
-              "Data History",
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                color: AppColor.primary,
-              ),
-            ),
-
-            Text(
               "ประวัติข้อมูล",
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 color: Colors.grey,
               ),
             ),
 
+            Text(
+              "Data History",
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ],
         ),
 
@@ -129,10 +127,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ],
 
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(2),
-          child: Divider(
-            thickness: 2,
-            color: Colors.grey.shade400,
+          preferredSize: const Size.fromHeight(1),
+          child: Container(
+            color: Colors.black38,
             height: 2,
           ),
         ),

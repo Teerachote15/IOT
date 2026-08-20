@@ -1,0 +1,91 @@
+.device-table-container {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.table-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.table-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #111;
+}
+
+.refresh-btn {
+  background: none;
+  border: none;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.refresh-btn:hover {
+  background: #f0f7ff;
+}
+
+.device-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.device-table thead {
+  background: #f9f9f9;
+}
+
+.device-table th {
+  text-align: left;
+  padding: 12px 20px;
+  font-weight: 600;
+  color: #666;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.device-table td {
+  padding: 12px 20px;
+  border-bottom: 1px solid #f0f0f0;
+  color: #333;
+}
+
+.device-table tbody tr:hover {
+  background: #fafafa;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-online {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-offline {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.status-problem {
+  background: #fef3c7;
+  color: #92400e;
+}

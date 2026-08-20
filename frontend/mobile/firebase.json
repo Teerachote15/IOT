@@ -1,1 +1,25 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"iot1-d86f0","appId":"1:38213246262:android:f898d957489f2c6a65e797","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"iot1-d86f0","configurations":{"android":"1:38213246262:android:f898d957489f2c6a65e797","web":"1:38213246262:web:d3fa461b866ddd8665e797"}}}}}}
+{
+	"functions": {
+		"source": "../backend/functions"
+	},
+	"flutter": {
+		"platforms": {
+			"android": {
+				"default": {
+					"projectId": "iot1-d86f0",
+					"appId": "1:38213246262:android:f898d957489f2c6a65e797",
+					"fileOutput": "android/app/google-services.json"
+				}
+			},
+			"dart": {
+				"lib/firebase_options.dart": {
+					"projectId": "iot1-d86f0",
+					"configurations": {
+						"android": "1:38213246262:android:f898d957489f2c6a65e797",
+						"web": "1:38213246262:web:d3fa461b866ddd8665e797"
+					}
+				}
+			}
+		}
+	}
+}
