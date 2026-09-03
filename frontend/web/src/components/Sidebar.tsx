@@ -9,8 +9,10 @@ import {
   Settings,
   Users,
   HelpCircle,
+  LogOut,
 } from 'lucide-react';
 import { subscribeToAlerts } from '../services/database';
+import { logout } from '../services/auth';
 import '../styles/sidebar.css';
 
 export default function Sidebar() {
@@ -110,6 +112,10 @@ export default function Sidebar() {
             <HelpCircle size={16} />
             ผู้ขอความช่วยเหลือ
           </Link>
+          <button className="footer-link footer-logout" type="button" onClick={logout}>
+            <LogOut size={16} />
+            ออกจากระบบ
+          </button>
         </div>
       </div>
     </div>

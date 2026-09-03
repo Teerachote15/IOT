@@ -3,7 +3,9 @@ import Header from '../components/Header';
 import UserCard from '../components/UserCard';
 import '../styles/users.css';
 import { useUsers, useAllDevices } from '../services/hooks';
-import { createUserRecord, updateUserRecord, deleteUserRecord } from '../services/database';
+import { updateUserRecord, deleteUserRecord } from '../services/database';
+import { auth } from '../firebase';
+import { changeCurrentUserPassword, createManagedUser } from '../services/auth';
 
 interface User {
   id?: string;
@@ -24,19 +26,45 @@ export default function UsersPage() {
   const [formEmail, setFormEmail] = useState('');
   const [formRole, setFormRole] = useState('พนักงาน');
   const [formRooms, setFormRooms] = useState<string[]>([]);
+  const [formPassword, setFormPassword] = useState('');
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const handleCreate = async (user: Omit<User, 'id'>) => {
-    await createUserRecord(user as any);
+    if (!user.email || !formPassword) {
+      setFormError('กรุณากรอกอีเมลและรหัสผ่านสำหรับผู้ใช้ใหม่');
+      return;
+    }
+    if (formPassword.length < 6) {
+      setFormError('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
+      return;
+    }
+    await createManagedUser(user.name, user.email, formPassword, user.role || 'พนักงาน', user.rooms || []);
     setShowModal(false);
   };
 
   const handleUpdate = async (id: string, user: Partial<User>) => {
+    if (formPassword) {
+      if (id !== auth.currentUser?.uid) {
+        setFormError('เปลี่ยนรหัสผ่านของผู้ใช้อื่นไม่ได้จากหน้าเว็บนี้ ต้องใช้ Admin SDK หรือ Cloud Function');
+        return;
+      }
+      if (formPassword.length < 6) {
+        setFormError('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
+        return;
+      }
+      await changeCurrentUserPassword(formPassword);
+    }
     await updateUserRecord(id, user as any);
     setShowModal(false);
   };
 
   const handleDelete = async (id?: string) => {
     if (!id) return;
+    if (id === auth.currentUser?.uid) {
+      setFormError('ไม่สามารถลบบัญชีที่กำลังใช้งานอยู่ได้');
+      return;
+    }
     if (!confirm('ลบผู้ใช้นี้จริงหรือไม่?')) return;
     await deleteUserRecord(id);
   };
@@ -47,6 +75,8 @@ export default function UsersPage() {
     setFormEmail('');
     setFormRole('พนักงาน');
     setFormRooms([]);
+    setFormPassword('');
+    setFormError('');
     setShowModal(true);
   };
 
@@ -57,15 +87,26 @@ export default function UsersPage() {
     setFormEmail(user.email || '');
     setFormRole(user.role || 'พนักงาน');
     setFormRooms(user.rooms || []);
+    setFormPassword('');
+    setFormError('');
     setShowModal(true);
   };
 
   const submitForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingUser && editingUser.id) {
-      await handleUpdate(editingUser.id, { name: formName, email: formEmail, role: formRole, rooms: formRooms });
-    } else {
-      await handleCreate({ name: formName, email: formEmail, role: formRole, rooms: formRooms });
+    setFormError('');
+    setSaving(true);
+    try {
+      if (editingUser && editingUser.id) {
+        await handleUpdate(editingUser.id, { name: formName, email: formEmail, role: formRole, rooms: formRooms });
+      } else {
+        await handleCreate({ name: formName, email: formEmail, role: formRole, rooms: formRooms });
+      }
+    } catch (submitError) {
+      const code = (submitError as { code?: string })?.code;
+      setFormError(code === 'auth/email-already-in-use' ? 'อีเมลนี้มีบัญชีอยู่แล้ว' : 'ไม่สามารถบันทึกข้อมูลผู้ใช้ได้');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -112,6 +153,17 @@ export default function UsersPage() {
                   <input value={formEmail} onChange={(e) => setFormEmail(e.target.value)} />
                 </div>
                 <div style={{ marginBottom: 8 }}>
+                  <label>รหัสผ่าน {editingUser ? '(เว้นว่างถ้าไม่เปลี่ยน)' : ''}</label>
+                  <input
+                    type="password"
+                    value={formPassword}
+                    onChange={(e) => setFormPassword(e.target.value)}
+                    placeholder={editingUser ? 'เว้นว่างถ้าไม่เปลี่ยน' : 'อย่างน้อย 6 ตัวอักษร'}
+                    minLength={6}
+                    required={!editingUser}
+                  />
+                </div>
+                <div style={{ marginBottom: 8 }}>
                   <label>มอบหมายห้อง</label>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                     {Array.from(new Set(devices.map((d) => d.room).filter(Boolean))).map((r) => {
@@ -140,8 +192,9 @@ export default function UsersPage() {
                   </select>
                 </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  {formError && <div style={{ color: '#b91c1c', marginRight: 'auto', fontSize: 13 }}>{formError}</div>}
                   <button type="button" onClick={() => setShowModal(false)}>ยกเลิก</button>
-                  <button type="submit" className="add-user">บันทึก</button>
+                  <button type="submit" className="add-user" disabled={saving}>{saving ? 'กำลังบันทึก...' : 'บันทึก'}</button>
                 </div>
               </form>
             </div>

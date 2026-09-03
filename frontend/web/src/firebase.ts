@@ -2,7 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: 'AIzaSyDXbLvZYDYdGJspgCwymFiHRyPBiHHdY4g',
   projectId: 'iot1-d86f0',
   storageBucket: 'iot1-d86f0.firebasestorage.app',

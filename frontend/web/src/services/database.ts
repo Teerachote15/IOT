@@ -15,6 +15,16 @@ export interface DeviceHistoryPoint {
   timestamp?: number;
 }
 
+export interface SensorSnapshot {
+  temperature?: number;
+  humidity?: number;
+  voltage?: number;
+  current?: number;
+  power?: number;
+  energy?: number;
+  timestamp?: number;
+}
+
 export interface Device {
   id: string;
   name: string;
@@ -25,6 +35,10 @@ export interface Device {
   power: number;
   lastSeen: number;
   history?: Record<string, DeviceHistoryPoint>;
+  sensors?: {
+    dht22?: SensorSnapshot;
+    pzem?: SensorSnapshot;
+  };
 }
 
 export interface DeviceRecord {
@@ -75,7 +89,7 @@ export const subscribeToSensorData = (
   errorCallback?: (error: Error) => void
 ) => {
   try {
-    const sensorRef = ref(database, `devices/${deviceId}/last`);
+    const sensorRef = ref(database, `devices/${deviceId}/sensors/dht22/last`);
     const unsubscribe = onValue(
       sensorRef,
       (snapshot) => {
@@ -104,31 +118,46 @@ export const subscribeToAllDevices = (
     const unsubscribe = onValue(
       devicesRef,
       (snapshot) => {
+        const devices: Device[] = [];
         if (snapshot.exists()) {
-          const devices: Device[] = [];
           snapshot.forEach((childSnapshot) => {
             const deviceId = childSnapshot.key || '';
             const data = childSnapshot.val();
-            if (data.last || data.history) {
-              const resolvedStatus =
-                (data.status as 'online' | 'offline' | 'problem') ||
-                (data.enabled === false ? 'offline' : data.last?.temperature ? 'online' : 'offline');
+            const dhtLast = data.sensors?.dht22?.last || data.last || {};
+            const pzemLast = data.sensors?.pzem?.last || {};
+            const dhtHistory = data.sensors?.dht22?.history || data.history || {};
+            const pzemHistory = data.sensors?.pzem?.history || {};
+            const history = {
+              ...dhtHistory,
+              ...Object.fromEntries(
+                Object.entries(pzemHistory).map(([key, value]) => [`pzem_${key}`, value])
+              ),
+            };
+            if (data.last || data.history || data.sensors) {
+              const resolvedStatus = data.enabled === false
+                ? 'offline'
+                : (data.status as 'online' | 'offline' | 'problem') ||
+                  (dhtLast.temperature ? 'online' : 'offline');
 
               devices.push({
                 id: deviceId,
                 name: data.name || `Device ${deviceId}`,
                 room: data.room || 'Unknown',
                 status: resolvedStatus,
-                temperature: data.last?.temperature || 0,
-                humidity: data.last?.humidity || 0,
-                power: data.last?.power || 0,
-                lastSeen: data.last?.timestamp || Date.now(),
-                history: data.history || {},
+                temperature: dhtLast.temperature || 0,
+                humidity: dhtLast.humidity || 0,
+                power: pzemLast.power || dhtLast.power || 0,
+                lastSeen: Math.max(dhtLast.timestamp || 0, pzemLast.timestamp || 0) || Date.now(),
+                history,
+                sensors: {
+                  dht22: dhtLast,
+                  pzem: pzemLast,
+                },
               });
             }
           });
-          callback(devices);
         }
+        callback(devices);
       },
       (error) => {
         if (errorCallback) errorCallback(error);
@@ -151,13 +180,15 @@ export const getAverageSensorData = async (
     let totalPower = 0;
 
     for (const deviceId of deviceIds) {
-      const sensorRef = ref(database, `devices/${deviceId}/last`);
-      const snapshot = await get(sensorRef);
+      const deviceRef = ref(database, `devices/${deviceId}`);
+      const snapshot = await get(deviceRef);
       if (snapshot.exists()) {
         const data = snapshot.val();
-        totalTemp += data.temperature || 0;
-        totalHumidity += data.humidity || 0;
-        totalPower += data.power || 0;
+        const dht = data.sensors?.dht22?.last || data.last || {};
+        const pzem = data.sensors?.pzem?.last || {};
+        totalTemp += dht.temperature || 0;
+        totalHumidity += dht.humidity || 0;
+        totalPower += pzem.power || 0;
       }
     }
 
@@ -179,12 +210,15 @@ export const getTemperatureHistory = async (
   hours: number = 24
 ): Promise<Array<{ time: string; temp: number }>> => {
   try {
-    const historyRef = ref(database, `devices/${deviceId}/history`);
-    const snapshot = await get(historyRef);
+    const nestedHistoryRef = ref(database, `devices/${deviceId}/sensors/dht22/history`);
+    const snapshot = await get(nestedHistoryRef);
+    const legacySnapshot = snapshot.exists()
+      ? snapshot
+      : await get(ref(database, `devices/${deviceId}/history`));
     
-    if (snapshot.exists()) {
+    if (legacySnapshot.exists()) {
       const history: Array<{ time: string; temp: number }> = [];
-      const data = snapshot.val();
+      const data = legacySnapshot.val();
       
       Object.values(data).forEach((entry: any) => {
         if (entry.temperature) {
@@ -322,7 +356,8 @@ export interface RuleRecord {
   id?: string;
   name: string;
   metric: 'temperature' | 'humidity' | 'power';
-  operator: 'greater_than' | 'less_than' | 'equal';
+  operator?: 'greater_than' | 'less_than' | 'equal';
+  comparator?: '>' | '<' | '=';
   threshold: number;
   rooms?: string[];
   enabled?: boolean;
@@ -363,6 +398,7 @@ export const createRuleRecord = async (rule: RuleRecord) => {
   const newRef = await push(rulesRef);
   await set(newRef, {
     ...rule,
+    comparator: rule.comparator || (rule.operator === 'less_than' ? '<' : rule.operator === 'equal' ? '=' : '>'),
     enabled: rule.enabled ?? true,
     rooms: rule.rooms || [],
     createdAt: Date.now(),
@@ -372,7 +408,13 @@ export const createRuleRecord = async (rule: RuleRecord) => {
 
 export const updateRuleRecord = async (id: string, rule: Partial<RuleRecord>) => {
   const ruleRef = ref(database, `rules/${id}`);
-  await update(ruleRef, rule);
+  const normalizedRule = rule.operator
+    ? {
+        ...rule,
+        comparator: rule.operator === 'less_than' ? '<' : rule.operator === 'equal' ? '=' : '>',
+      }
+    : rule;
+  await update(ruleRef, normalizedRule);
 };
 
 export const deleteRuleRecord = async (id: string) => {

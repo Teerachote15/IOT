@@ -33,6 +33,8 @@ function buildHistoryData(devices: any[], selectedRoom: string, hours: number, m
     const history = device.history || {};
     Object.values(history).forEach((entry: any) => {
       if (!entry || !entry.timestamp) return;
+      if (metric !== 'power' && entry.power !== undefined && entry.temperature === undefined && entry.humidity === undefined) return;
+      if (metric === 'power' && entry.power === undefined) return;
       const ts = Number(entry.timestamp);
       const diffHours = (Date.now() - ts) / 3600000;
       if (diffHours > hours) return;
@@ -206,7 +208,11 @@ export default function HistoryPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {chartData.map((row) => (
+                    {chartData.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="history-no-data">ยังไม่มีข้อมูลย้อนหลังในช่วงเวลาที่เลือก</td>
+                      </tr>
+                    ) : chartData.map((row) => (
                       <tr key={row.time}>
                         <td>{row.time}</td>
                         <td>{row.temperature}°C</td>

@@ -147,6 +147,12 @@
   background: #f9fafb;
 }
 
+.history-no-data {
+  padding: 28px 10px !important;
+  text-align: center !important;
+  color: #64748b;
+}
+
 .history-state {
   padding: 14px 16px;
   background: #e0f2fe;

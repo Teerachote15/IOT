@@ -42,6 +42,8 @@ export const onSensorWrite = functions.database
     if (!after) return null;
 
     const db = admin.database();
+    const deviceRoomSnap = await db.ref(`/devices/${deviceId}/room`).once('value');
+    const deviceRoom = deviceRoomSnap.val();
     const rulesSnap = await db.ref('/rules').once('value');
     const rules = rulesSnap.val() || {};
     const now = Date.now();
@@ -49,11 +51,20 @@ export const onSensorWrite = functions.database
 
     Object.keys(rules).forEach(ruleId => {
       const r = rules[ruleId];
-      if (!r || !r.metric) return;
-      const metricVal = r.metric === 'temperature' ? after.temperature : after.humidity;
+      if (!r || !r.metric || r.enabled === false) return;
+      if (Array.isArray(r.rooms) && r.rooms.length > 0 && !r.rooms.includes(deviceRoom)) return;
+      const metricVal = r.metric === 'temperature'
+        ? after.temperature
+        : r.metric === 'humidity'
+          ? after.humidity
+          : undefined;
       if (metricVal == null) return;
       const comparator = r.comparator || '>';
-      const triggered = comparator === '>' ? metricVal > r.threshold : metricVal < r.threshold;
+      const triggered = comparator === '>'
+        ? metricVal > r.threshold
+        : comparator === '<'
+          ? metricVal < r.threshold
+          : metricVal === r.threshold;
       if (triggered) {
         const alert = {
           deviceId,
@@ -116,3 +127,4 @@ export const addOrUpdateRule = functions.https.onRequest(async (req, res) => {
     return;
   }
 });
+

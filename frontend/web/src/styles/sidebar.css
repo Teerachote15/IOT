@@ -113,3 +113,12 @@
 .footer-link:hover {
   color: #2563eb;
 }
+
+.footer-logout {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}

@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { Thermometer, Droplets, Zap, Wifi } from 'lucide-react';
 import Header from '../components/Header';
 import StatCard from '../components/StatCard';
@@ -6,26 +5,14 @@ import TemperatureChart from '../components/TemperatureChart';
 import PowerChart from '../components/PowerChart';
 import DeviceTable from '../components/DeviceTable';
 import { useAllDevices, useAverageSensorData } from '../services/hooks';
-import { initMockData } from '../services/mockData';
 import '../styles/dashboard.css';
 
 export default function Dashboard() {
   const { devices, loading, error } = useAllDevices();
-  const deviceIds = devices.map((d) => d.id);
+  const onlineDeviceList = devices.filter((d) => d.status === 'online');
+  const deviceIds = onlineDeviceList.map((d) => d.id);
   const { data: averageData } = useAverageSensorData(deviceIds);
-  const [dataInitialized, setDataInitialized] = useState(false);
-
-  // เพิ่ม Mock Data เมื่อโหลด Dashboard ครั้งแรก
-  useEffect(() => {
-    if (!dataInitialized && devices.length === 0) {
-      const timer = setTimeout(() => {
-        initMockData().then(() => setDataInitialized(true));
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [dataInitialized, devices.length]);
-
-  const onlineDevices = devices.filter((d) => d.status === 'online').length;
+  const onlineDevices = onlineDeviceList.length;
   const offlineDevices = devices.filter((d) => d.status === 'offline').length;
 
   return (
@@ -83,9 +70,9 @@ export default function Dashboard() {
           <StatCard
             icon={Zap}
             title="พลังงานรวม"
-            value={averageData?.power || 0}
+            value={devices.length ? (averageData?.power || 0) : '-'}
             unit="kWh"
-            subtitle="กำลังไฟฟ้ารวมทั้งระบบ"
+            subtitle="ยังไม่มีตัววัดพลังงาน"
           />
           <StatCard
             icon={Wifi}

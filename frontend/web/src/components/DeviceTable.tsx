@@ -54,7 +54,7 @@ export default function DeviceTable({ devices }: DeviceTableProps) {
       <table className="device-table">
         <thead>
           <tr>
-            <th>เลขประมาณ</th>
+            <th>ชื่ออุปกรณ์</th>
             <th>ห้อง</th>
             <th>สถานะ</th>
             <th>อุณหภูมิ</th>
@@ -66,7 +66,7 @@ export default function DeviceTable({ devices }: DeviceTableProps) {
         <tbody>
           {devices.map((device) => (
             <tr key={device.id}>
-              <td>{device.id}</td>
+              <td>{device.name}</td>
               <td>{device.room}</td>
               <td>{getStatusBadge(device.status)}</td>
               <td>{device.temperature.toFixed(1)}°C</td>

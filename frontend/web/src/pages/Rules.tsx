@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useRooms } from '../services/hooks';
 import { createRuleRecord, deleteRuleRecord, subscribeToRules, updateRuleRecord } from '../services/database';
@@ -49,7 +49,7 @@ export default function RulesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<RuleFormState>(defaultForm);
 
-  useMemo(() => {
+  useEffect(() => {
     const unsubscribe = subscribeToRules(
       (list) => {
         setRules(list);
@@ -75,7 +75,7 @@ export default function RulesPage() {
     setForm({
       name: rule.name || '',
       metric: rule.metric || 'temperature',
-      operator: rule.operator || 'greater_than',
+      operator: rule.operator || (rule.comparator === '<' ? 'less_than' : rule.comparator === '=' ? 'equal' : 'greater_than'),
       threshold: Number(rule.threshold || 0),
       rooms: rule.rooms || [],
       enabled: rule.enabled ?? true,
@@ -86,6 +86,11 @@ export default function RulesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const comparator: '>' | '<' | '=' = form.operator === 'less_than'
+      ? '<'
+      : form.operator === 'equal'
+        ? '='
+        : '>';
     const payload = {
       name: form.name.trim(),
       metric: form.metric,
@@ -93,6 +98,7 @@ export default function RulesPage() {
       threshold: Number(form.threshold),
       rooms: form.rooms,
       enabled: form.enabled,
+      comparator,
     };
 
     if (!payload.name) return;

@@ -15,21 +15,25 @@ interface TemperatureChartProps {
 }
 
 export default function TemperatureChart({ devices }: TemperatureChartProps) {
-  // สร้างข้อมูลจำลองสำหรับแผนภูมิ (Mock hourly data)
-  const mockData = [
-    { time: '00:00', temp: 22 },
-    { time: '04:00', temp: 20 },
-    { time: '08:00', temp: 24 },
-    { time: '12:00', temp: 28 },
-    { time: '16:00', temp: devices.length > 0 ? devices[0].temperature : 26 },
-    { time: '20:00', temp: 24 },
-  ];
+  const chartData = devices
+    .flatMap((device) => Object.values(device.history || {}).map((entry) => ({
+      timestamp: entry.timestamp || 0,
+      time: entry.timestamp
+        ? new Date(entry.timestamp).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+        : '-',
+      temp: Number(entry.temperature || 0),
+    })))
+    .filter((entry) => entry.timestamp > 0)
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(-24);
 
   return (
     <div className="chart-card">
       <h3>อุณหภูมิเฉลี่ย - 24 ชั่วโมง</h3>
-      <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={mockData}>
+      {chartData.length === 0 ? (
+        <div className="chart-empty">ยังไม่มีข้อมูลย้อนหลังจาก Firebase</div>
+      ) : <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
           <XAxis dataKey="time" />
           <YAxis domain={[18, 33]} />
@@ -42,7 +46,7 @@ export default function TemperatureChart({ devices }: TemperatureChartProps) {
             dot={false}
           />
         </LineChart>
-      </ResponsiveContainer>
+      </ResponsiveContainer>}
     </div>
   );
 }

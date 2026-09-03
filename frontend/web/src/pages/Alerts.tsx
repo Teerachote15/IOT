@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Bell } from 'lucide-react';
+import { useAllDevices } from '../services/hooks';
 import { subscribeToAlerts, updateAlertRecord } from '../services/database';
 import '../styles/alerts.css';
 
@@ -27,6 +28,7 @@ export default function AlertsPage() {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { devices } = useAllDevices();
 
   useEffect(() => {
     const unsubscribe = subscribeToAlerts(
@@ -44,7 +46,23 @@ export default function AlertsPage() {
     return () => unsubscribe();
   }, []);
 
-  const activeAlerts = useMemo(() => alerts.filter((item) => !item.resolved), [alerts]);
+  const activeAlerts = useMemo(() => {
+    const latestByDeviceAndRule = new Map<string, any>();
+
+    alerts
+      .filter((item) => !item.resolved)
+      .forEach((item) => {
+        const key = `${item.deviceId || 'unknown'}:${item.ruleId || item.metric || 'alert'}`;
+        const current = latestByDeviceAndRule.get(key);
+        if (!current || (item.timestamp || 0) > (current.timestamp || 0)) {
+          latestByDeviceAndRule.set(key, item);
+        }
+      });
+
+    return Array.from(latestByDeviceAndRule.values()).sort(
+      (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+    );
+  }, [alerts]);
 
   const markResolved = async (id?: string) => {
     if (!id) return;
@@ -81,7 +99,9 @@ export default function AlertsPage() {
 
         <div className="alerts-list">
           {activeAlerts.map((alert) => {
+            const device = devices.find((item) => item.id === alert.deviceId);
             const metricText = formatMetric(alert.metric);
+            const metricUnit = alert.metric === 'temperature' ? '°C' : alert.metric === 'humidity' ? '%' : 'kWh';
             const isWarning = alert.severity === 'warning' || alert.severity === 'critical';
             const resolved = !!alert.resolved;
 
@@ -98,10 +118,10 @@ export default function AlertsPage() {
 
                   <div className="alert-copy">
                     <div className="alert-text">
-                      {alert.deviceName || 'อุปกรณ์'} {alert.metric ? `เกินค่าที่กำหนด` : 'แจ้งเตือน'} - {alert.room || 'ห้อง'}
+                      {alert.deviceName || device?.name || alert.deviceId || 'อุปกรณ์'} {alert.metric ? `เกินค่าที่กำหนด` : 'แจ้งเตือน'} - {alert.room || device?.room || 'ห้อง'}
                     </div>
                     <div className="alert-detail">
-                      กำหนด {metricText} {alert.value ?? 0}°C / {alert.threshold ?? 0}
+                      ค่า{metricText} {alert.value ?? 0}{metricUnit} / เกณฑ์ {alert.threshold ?? 0}{metricUnit}
                     </div>
                   </div>
                 </div>
