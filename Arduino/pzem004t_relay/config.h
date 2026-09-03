@@ -10,17 +10,18 @@
 #define FIREBASE_USER_EMAIL "emp1@iot.com"
 #define FIREBASE_USER_PASSWORD "123456"
 
-// Same device ID as the DHT22 controller.
+// Device
 #define DEVICE_ID "-P-UIjh4iFMvw5EzIJP_"
 #define DEVICE_NAME "IOT ROOM1"
 #define DEVICE_ROOM "Room1"
 
-// NodeMCU ESP8266 SoftwareSerial pins connected to PZEM TX/RX.
-// D6/D7 are used instead of D0 because GPIO16 is not a reliable UART RX pin.
-#define PZEM_RX_PIN 12
-#define PZEM_TX_PIN 13
+// PZEM-004T -> ESP32 DevKit V1
+// PZEM TX -> GPIO16
+// PZEM RX -> GPIO17
+#define PZEM_RX_PIN 16
+#define PZEM_TX_PIN 17
 
-// Relay control pin and electrical logic.
+// Relay
 #define RELAY_PIN 14
 #define RELAY_ACTIVE_LOW true
 
