@@ -1,4 +1,5 @@
-import { Device } from '../services/database';
+import { useEffect, useState } from 'react';
+import { Device, isDeviceDataStale } from '../services/database';
 import '../styles/device-table.css';
 
 interface DeviceTableProps {
@@ -16,9 +17,11 @@ function getStatusBadge(status: string) {
 }
 
 function getLastSeenText(timestamp: number): string {
+  if (!timestamp) return 'ไม่เคยเชื่อมต่อ';
   const now = Date.now();
   const diff = now - timestamp;
 
+  if (diff < 0) return 'เวลาไม่ถูกต้อง';
   if (diff < 60000) return 'เมื่อสักครู่';
   if (diff < 3600000) return `${Math.floor(diff / 60000)} นาทีที่แล้ว`;
   if (diff < 86400000) return `${Math.floor(diff / 3600000)} ชั่วโมงที่แล้ว`;
@@ -26,6 +29,12 @@ function getLastSeenText(timestamp: number): string {
 }
 
 export default function DeviceTable({ devices }: DeviceTableProps) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   if (devices.length === 0) {
     return (
       <div className="device-table-container">
@@ -39,7 +48,7 @@ export default function DeviceTable({ devices }: DeviceTableProps) {
             color: '#999',
           }}
         >
-          ไม่มีข้อมูลอุปกรณ์ กำลังเพิ่ม Mock Data...
+          ไม่มีข้อมูลอุปกรณ์ในระบบ
         </div>
       </div>
     );
@@ -59,8 +68,8 @@ export default function DeviceTable({ devices }: DeviceTableProps) {
             <th>สถานะ</th>
             <th>อุณหภูมิ</th>
             <th>ความชื้น</th>
-            <th>พลังงาน</th>
-            <th>อื่นๆ</th>
+            <th>กำลังไฟ</th>
+            <th>อัปเดตล่าสุด</th>
           </tr>
         </thead>
         <tbody>
@@ -68,11 +77,15 @@ export default function DeviceTable({ devices }: DeviceTableProps) {
             <tr key={device.id}>
               <td>{device.name}</td>
               <td>{device.room}</td>
-              <td>{getStatusBadge(device.status)}</td>
-              <td>{device.temperature.toFixed(1)}°C</td>
-              <td>{device.humidity.toFixed(1)}%</td>
-              <td>{device.power.toFixed(2)} kWh</td>
-              <td>{getLastSeenText(device.lastSeen)}</td>
+              <td>
+                {device.status === 'online' && isDeviceDataStale(device, now)
+                  ? <span className="status-badge status-offline">ข้อมูลล่าช้า</span>
+                  : getStatusBadge(device.status)}
+              </td>
+              <td>{device.sensors?.dht22?.temperature == null ? '—' : `${device.sensors.dht22.temperature.toFixed(1)}°C`}</td>
+              <td>{device.sensors?.dht22?.humidity == null ? '—' : `${device.sensors.dht22.humidity.toFixed(1)}%`}</td>
+              <td>{device.sensors?.pzem?.power == null ? '—' : `${device.sensors.pzem.power.toFixed(1)} W`}</td>
+              <td>{device.lastSeen ? getLastSeenText(device.lastSeen) : 'ยังไม่มีข้อมูล'}</td>
             </tr>
           ))}
         </tbody>

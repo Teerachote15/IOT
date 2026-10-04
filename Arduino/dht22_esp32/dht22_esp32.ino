@@ -1,7 +1,7 @@
-#include <WiFi.h>
+#include <ESP8266WiFi.h>
 #include <time.h>
 #include <DHT.h>
-#include <FirebaseESP32.h>
+#include <Firebase_ESP_Client.h>
 #include "config.h"
 
 FirebaseData firebaseData;
@@ -56,7 +56,7 @@ bool writeSensorReading(float temperature, float humidity) {
   lastJson.set("power", 0);
   lastJson.set("timestamp", timestamp);
 
-  if (!Firebase.setJSON(firebaseData, lastPath.c_str(), lastJson)) {
+  if (!Firebase.RTDB.setJSON(&firebaseData, lastPath.c_str(), &lastJson)) {
     Serial.print("Failed to write latest reading: ");
     Serial.println(firebaseData.errorReason());
     return false;
@@ -68,15 +68,39 @@ bool writeSensorReading(float temperature, float humidity) {
   historyJson.set("power", 0);
   historyJson.set("timestamp", timestamp);
 
-  if (!Firebase.pushJSON(firebaseData, historyPath.c_str(), historyJson)) {
+  if (!Firebase.RTDB.pushJSON(
+        &firebaseData,
+        historyPath.c_str(),
+        &historyJson)) {
     Serial.print("Failed to write history: ");
     Serial.println(firebaseData.errorReason());
     return false;
   }
 
-  Firebase.setString(firebaseData, (devicePath + "/name").c_str(), DEVICE_NAME);
-  Firebase.setString(firebaseData, (devicePath + "/room").c_str(), DEVICE_ROOM);
-  Firebase.setString(firebaseData, (devicePath + "/status").c_str(), "online");
+  if (!Firebase.RTDB.setString(
+        &firebaseData,
+        (devicePath + "/name").c_str(),
+        DEVICE_NAME)) {
+    Serial.print("Failed to write device name: ");
+    Serial.println(firebaseData.errorReason());
+    return false;
+  }
+  if (!Firebase.RTDB.setString(
+        &firebaseData,
+        (devicePath + "/room").c_str(),
+        DEVICE_ROOM)) {
+    Serial.print("Failed to write device room: ");
+    Serial.println(firebaseData.errorReason());
+    return false;
+  }
+  if (!Firebase.RTDB.setString(
+        &firebaseData,
+        (devicePath + "/status").c_str(),
+        "online")) {
+    Serial.print("Failed to write device status: ");
+    Serial.println(firebaseData.errorReason());
+    return false;
+  }
   Serial.println("Sensor reading sent to Firebase");
   return true;
 }
@@ -130,7 +154,7 @@ void upsertAlert(const String &ruleId, FirebaseJson &rule, float value, double t
   alert.set("resolved", false);
 
   String existingAlertPath;
-  if (Firebase.getJSON(firebaseData, "/alerts")) {
+  if (Firebase.RTDB.getJSON(&firebaseData, "/alerts")) {
     FirebaseJson alerts;
     alerts.setJsonData(firebaseData.jsonString());
     size_t alertCount = alerts.iteratorBegin();
@@ -163,11 +187,15 @@ void upsertAlert(const String &ruleId, FirebaseJson &rule, float value, double t
   }
 
   bool success = existingAlertPath.length() > 0
-    ? Firebase.setJSON(firebaseData, existingAlertPath.c_str(), alert)
-    : Firebase.pushJSON(firebaseData, "/alerts", alert);
+    ? Firebase.RTDB.setJSON(&firebaseData, existingAlertPath.c_str(), &alert)
+    : Firebase.RTDB.pushJSON(&firebaseData, "/alerts", &alert);
 
   if (success) {
-    Serial.println(existingAlertPath.length() > 0 ? "Alert updated in Firebase" : "Alert created in Firebase");
+    Serial.println(
+      existingAlertPath.length() > 0
+        ? "Alert updated in Firebase"
+        : "Alert created in Firebase"
+    );
   } else {
     Serial.print("Failed to upsert alert: ");
     Serial.println(firebaseData.errorReason());
@@ -175,7 +203,7 @@ void upsertAlert(const String &ruleId, FirebaseJson &rule, float value, double t
 }
 
 void evaluateRules() {
-  if (!Firebase.getJSON(firebaseData, "/rules")) {
+  if (!Firebase.RTDB.getJSON(&firebaseData, "/rules")) {
     Serial.print("Failed to read rules: ");
     Serial.println(firebaseData.errorReason());
     return;

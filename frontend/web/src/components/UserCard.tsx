@@ -12,12 +12,17 @@ interface UserProps {
 }
 
 export default function UserCard({ id, name, email, role = 'พนักงาน', rooms = [], onEdit, onDelete }: UserProps) {
+  const displayName = typeof name === 'string' && name.trim() ? name.trim() : 'ไม่ระบุชื่อ';
+  const assignedRooms = Array.isArray(rooms)
+    ? rooms.filter((room): room is string => typeof room === 'string')
+    : [];
+
   return (
     <div className="user-card">
       <div className="user-left">
-        <div className="user-avatar">{name.charAt(0)}</div>
+        <div className="user-avatar">{Array.from(displayName)[0]}</div>
         <div className="user-info">
-          <div className="user-name">{name}</div>
+          <div className="user-name">{displayName}</div>
           {email && <div className="user-email">{email}</div>}
         </div>
       </div>
@@ -29,10 +34,10 @@ export default function UserCard({ id, name, email, role = 'พนักงา�
         </div>
 
         <div className="rooms-line">
-          {rooms.length === 0 ? (
+          {assignedRooms.length === 0 ? (
             <span className="rooms-empty">ห้องที่มอบหมาย - คลิกเพื่อเพิ่ม/ถอน</span>
           ) : (
-            rooms.map((r) => (
+            assignedRooms.map((r) => (
               <span key={r} className="room-pill">{r}</span>
             ))
           )}

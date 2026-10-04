@@ -11,9 +11,9 @@
 #define FIREBASE_USER_PASSWORD "123456"
 
 // Device
-#define DEVICE_ID "-P-UIjh4iFMvw5EzIJP_"
-#define DEVICE_NAME "IOT ROOM1"
-#define DEVICE_ROOM "Room1"
+#define DEVICE_ID "IOT008"
+#define DEVICE_NAME "IOT008"
+#define DEVICE_ROOM "201"
 
 // PZEM-004T -> ESP32 DevKit V1
 // PZEM TX -> GPIO16

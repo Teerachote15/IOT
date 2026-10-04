@@ -1,15 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Bell } from 'lucide-react';
-import { useAllDevices } from '../services/hooks';
-import { subscribeToAlerts, updateAlertRecord } from '../services/database';
+import { Droplets, Thermometer, Zap, Bell } from 'lucide-react';
+import PageHeader from '../components/PageHeader';
+import { useAllDevices, useRooms } from '../services/hooks';
+import { AlertRecord, subscribeToAlerts, updateAlertRecord } from '../services/database';
 import '../styles/alerts.css';
 
 function formatMetric(metric?: string) {
   if (!metric) return 'ค่า';
   if (metric === 'temperature') return 'อุณหภูมิ';
   if (metric === 'humidity') return 'ความชื้น';
-  if (metric === 'power') return 'พลังงาน';
+  if (metric === 'power') return 'กำลังไฟ';
   return metric;
+}
+
+function metricStyle(metric?: string) {
+  if (metric === 'power') {
+    return { className: 'power', color: '#f59e0b', icon: <Zap size={18} /> };
+  }
+  if (metric === 'temperature') {
+    return { className: 'temperature', color: '#3b82f6', icon: <Thermometer size={18} /> };
+  }
+  if (metric === 'humidity') {
+    return { className: 'humidity', color: '#10b981', icon: <Droplets size={18} /> };
+  }
+  return { className: 'other', color: '#64748b', icon: <Bell size={18} /> };
 }
 
 function formatTime(dateValue?: number) {
@@ -25,10 +39,14 @@ function formatTime(dateValue?: number) {
 }
 
 export default function AlertsPage() {
-  const [alerts, setAlerts] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [roomFilter, setRoomFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'active' | 'resolved' | 'all'>('active');
   const { devices } = useAllDevices();
+  const { rooms } = useRooms();
 
   useEffect(() => {
     const unsubscribe = subscribeToAlerts(
@@ -47,7 +65,7 @@ export default function AlertsPage() {
   }, []);
 
   const activeAlerts = useMemo(() => {
-    const latestByDeviceAndRule = new Map<string, any>();
+    const latestByDeviceAndRule = new Map<string, AlertRecord>();
 
     alerts
       .filter((item) => !item.resolved)
@@ -64,27 +82,45 @@ export default function AlertsPage() {
     );
   }, [alerts]);
 
+  const filteredAlerts = useMemo(() => {
+    const source = statusFilter === 'active'
+      ? activeAlerts
+      : alerts.filter((alert) =>
+          statusFilter === 'all' || (statusFilter === 'resolved' && alert.resolved),
+        );
+    const keyword = search.trim().toLowerCase();
+    return source.filter((alert) => {
+      const device = devices.find((item) => item.id === alert.deviceId);
+      const roomName = alert.room || device?.room || '';
+      const room = rooms.find((item) => item.id === roomFilter);
+      const roomMatches = !roomFilter || (
+        room
+          ? device?.roomId === room.id || roomName === room.name
+          : roomName === roomFilter
+      );
+      const searchMatches = !keyword || [
+        alert.deviceName,
+        device?.name,
+        alert.deviceId,
+        roomName,
+        formatMetric(alert.metric),
+      ].some((field) => field?.toLowerCase().includes(keyword));
+      return roomMatches && searchMatches;
+    });
+  }, [activeAlerts, alerts, devices, roomFilter, rooms, search, statusFilter]);
+
   const markResolved = async (id?: string) => {
     if (!id) return;
-    await updateAlertRecord(id, { resolved: true });
+    try {
+      await updateAlertRecord(id, { resolved: true });
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : 'ไม่สามารถยืนยันการแจ้งเตือนได้');
+    }
   };
 
   return (
     <div className="alerts-page">
-      <header className="alerts-topbar">
-        <div className="alerts-brand">การแจ้งเตือน</div>
-        <div className="alerts-topbar-right">
-          <div className="live-pill">
-            <span className="live-dot" />
-            Live 5/7
-          </div>
-          <div className="date-pill">วัน / เดือน / ปี</div>
-          <div className="profile-box">
-            <span>สมชาย</span>
-            <div className="profile-avatar">ส</div>
-          </div>
-        </div>
-      </header>
+      <PageHeader title="การแจ้งเตือน" />
 
       <div className="alerts-content">
         <div className="alerts-header-row">
@@ -94,26 +130,47 @@ export default function AlertsPage() {
           </div>
         </div>
 
+        <div className="alerts-filters">
+          <input
+            aria-label="ค้นหาการแจ้งเตือน"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="ค้นหาอุปกรณ์ ห้อง หรือเซนเซอร์"
+          />
+          <select aria-label="กรองตามห้อง" value={roomFilter} onChange={(event) => setRoomFilter(event.target.value)}>
+            <option value="">ทุกห้อง</option>
+            {rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+          </select>
+          <select
+            aria-label="กรองตามสถานะ"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+          >
+            <option value="active">ต้องตรวจสอบ</option>
+            <option value="resolved">ยืนยันแล้ว</option>
+            <option value="all">ทั้งหมด</option>
+          </select>
+        </div>
+
         {loading && <div className="alerts-state">กำลังโหลดการแจ้งเตือน...</div>}
         {error && <div className="alerts-state error">{error}</div>}
 
         <div className="alerts-list">
-          {activeAlerts.map((alert) => {
+          {filteredAlerts.map((alert) => {
             const device = devices.find((item) => item.id === alert.deviceId);
             const metricText = formatMetric(alert.metric);
-            const metricUnit = alert.metric === 'temperature' ? '°C' : alert.metric === 'humidity' ? '%' : 'kWh';
-            const isWarning = alert.severity === 'warning' || alert.severity === 'critical';
+            const metricUnit = alert.metric === 'temperature' ? '°C' : alert.metric === 'humidity' ? '%' : 'W';
+            const style = metricStyle(alert.metric);
             const resolved = !!alert.resolved;
 
             return (
               <div
                 key={alert.id}
-                className={resolved ? 'alert-item resolved' : 'alert-item'}
-                style={{ borderColor: isWarning ? '#ef4444' : '#f59e0b' }}
+                className={`alert-item metric-${style.className}${resolved ? ' resolved' : ''}`}
               >
                 <div className="alert-left">
-                  <div className={`alert-icon ${isWarning ? 'warning' : 'info'}`}>
-                    {isWarning ? <AlertTriangle size={18} /> : <Bell size={18} />}
+                  <div className={`alert-icon metric-${style.className}`}>
+                    {style.icon}
                   </div>
 
                   <div className="alert-copy">
@@ -131,8 +188,9 @@ export default function AlertsPage() {
                     type="button"
                     className={resolved ? 'resolve-btn resolved' : 'resolve-btn'}
                     onClick={() => markResolved(alert.id)}
+                    disabled={resolved}
                   >
-                    {resolved ? 'รีเซ็ต' : 'ยืนยัน'}
+                    {resolved ? 'ยืนยันแล้ว' : 'ยืนยัน'}
                   </button>
                   <div className="alert-time">{formatTime(alert.timestamp)}</div>
                 </div>
@@ -140,8 +198,8 @@ export default function AlertsPage() {
             );
           })}
 
-          {!loading && activeAlerts.length === 0 && (
-            <div className="alerts-empty">ไม่มีการแจ้งเตือนที่ต้องตรวจสอบ</div>
+          {!loading && filteredAlerts.length === 0 && (
+            <div className="alerts-empty">ไม่พบการแจ้งเตือนที่ตรงกับตัวกรอง</div>
           )}
         </div>
       </div>

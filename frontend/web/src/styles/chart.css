@@ -22,5 +22,63 @@
   color: #111;
 }
 
-.power-chart {
+.chart-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.chart-heading h3 {
+  margin-bottom: 4px;
+}
+
+.chart-heading p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.chart-selectors {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.chart-range {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 3px;
+  background: #f1f5f9;
+  border-radius: 9px;
+}
+
+.chart-range button {
+  padding: 6px 9px;
+  color: #475569;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.chart-range button.active {
+  color: #0f172a;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+@media (max-width: 520px) {
+  .chart-heading {
+    flex-direction: column;
+  }
+
+  .chart-selectors {
+    justify-content: flex-start;
+  }
 }

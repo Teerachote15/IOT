@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, Edit2, Plus, Trash2 } from 'lucide-react';
+import PageHeader from '../components/PageHeader';
 import { useAllDevices } from '../services/hooks';
 import { useRooms } from '../services/hooks';
 import { createRoomRecord, updateRoomRecord, deleteRoomRecord } from '../services/database';
@@ -8,7 +9,7 @@ import '../styles/rooms.css';
 
 interface RoomFormState {
   name: string;
-  floor: string;
+  building: string;
 }
 
 export default function RoomsPage() {
@@ -17,65 +18,86 @@ export default function RoomsPage() {
   const { devices } = useAllDevices();
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<RoomFormState>({ name: '', floor: '' });
+  const [form, setForm] = useState<RoomFormState>({ name: '', building: '' });
+  const [formError, setFormError] = useState('');
+  const [addingBuilding, setAddingBuilding] = useState(false);
+  const [selectedBuilding, setSelectedBuilding] = useState('');
+
+  const buildings = Array.from(new Set(
+    rooms.map((room) => room.building || room.floor).filter((building): building is string => Boolean(building))
+  )).sort((a, b) => a.localeCompare(b, 'th'));
 
   const openCreateModal = () => {
     setEditingId(null);
-    setForm({ name: '', floor: '' });
+    setForm({ name: '', building: '' });
+    setFormError('');
+    setAddingBuilding(buildings.length === 0);
     setShowModal(true);
   };
 
-  const openEditModal = (id?: string, name?: string, floor?: string) => {
+  const openEditModal = (id?: string, name?: string, building?: string) => {
     if (!id) return;
     setEditingId(id);
-    setForm({ name: name || '', floor: floor || '' });
+    setForm({ name: name || '', building: building || '' });
+    setFormError('');
+    setAddingBuilding(false);
     setShowModal(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = form.name.trim();
-    const floor = form.floor.trim();
-    if (!name) return;
+    const building = form.building.trim();
+    if (!name || !building) return;
 
-    if (editingId) {
-      await updateRoomRecord(editingId, { name, floor });
-    } else {
-      await createRoomRecord({ name, floor });
+    setFormError('');
+    try {
+      if (editingId) {
+        const previousRoom = rooms.find((room) => room.id === editingId);
+        await updateRoomRecord(editingId, { name, building }, previousRoom?.name);
+      } else {
+        await createRoomRecord({ name, building });
+      }
+      setShowModal(false);
+      setForm({ name: '', building: '' });
+      setEditingId(null);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'ไม่สามารถบันทึกห้องได้');
     }
-
-    setShowModal(false);
-    setForm({ name: '', floor: '' });
-    setEditingId(null);
   };
 
   const handleDelete = async (id?: string) => {
     if (!id) return;
     if (!window.confirm('ลบห้องนี้ใช่หรือไม่?')) return;
-    await deleteRoomRecord(id);
+    try {
+      const room = rooms.find((item) => item.id === id);
+      await deleteRoomRecord(id, room?.name);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'ไม่สามารถลบห้องได้');
+    }
   };
 
   const roomList = rooms.map((room) => ({
     ...room,
-    devices: devices.filter((d) => d.room === room.name).length,
+    building: room.building || room.floor || 'ไม่ระบุอาคาร',
+    devices: devices.filter((device) =>
+      device.roomId
+        ? device.roomId === room.id
+        : device.room === room.name &&
+          (!device.building || device.building === (room.building || room.floor))
+    ).length,
   }));
+  const visibleRooms = selectedBuilding
+    ? roomList.filter((room) => room.building === selectedBuilding)
+    : roomList;
+  const roomsByBuilding = visibleRooms.reduce<Record<string, typeof roomList>>((groups, room) => {
+    (groups[room.building] ||= []).push(room);
+    return groups;
+  }, {});
 
   return (
     <div className="rooms-page">
-      <header className="rooms-topbar">
-        <div className="topbar-title">ห้องและอาคาร</div>
-        <div className="topbar-tools">
-          <div className="live-pill">
-            <span className="dot" />
-            Live 5/7
-          </div>
-          <div className="date-pill">วัน / เดือน / ปี</div>
-          <div className="profile-box">
-            <span>สมชาย</span>
-            <div className="profile-avatar">ส</div>
-          </div>
-        </div>
-      </header>
+      <PageHeader title="ห้องและอาคาร" />
 
       <div className="rooms-content">
         <div className="rooms-header-row">
@@ -93,61 +115,83 @@ export default function RoomsPage() {
         {roomsError && <div className="rooms-error">{roomsError.message}</div>}
         {roomsLoading && <div className="rooms-loading">กำลังโหลดห้อง...</div>}
 
-        <div className="rooms-grid">
-          {roomList.map((room) => (
-            <div
-              className="room-card"
-              key={room.id}
-              onClick={() => navigate(`/devices?room=${encodeURIComponent(room.name)}`)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  navigate(`/devices?room=${encodeURIComponent(room.name)}`);
-                }
-              }}
-            >
-              <div className="room-card-actions">
-                <button
-                  className="mini-btn"
-                  aria-label="Edit room"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openEditModal(room.id, room.name, room.floor);
-                  }}
-                >
-                  <Edit2 size={14} />
-                </button>
-                <button
-                  className="mini-btn danger"
-                  aria-label="Delete room"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(room.id);
-                  }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-
-              <div className="room-card-main">
-                <div className="room-icon">
-                  <Building2 size={20} />
-                </div>
-                <div className="room-name-block">
-                  <div className="room-name">{room.name}</div>
-                  <div className="room-floor">{room.floor ? `ที่ ${room.floor}` : 'ไม่ระบุชั้น'}</div>
-                </div>
-              </div>
-
-              <div className="room-device-count">
-                <span className="device-dot" />
-                {room.devices} อุปกรณ์
-              </div>
-            </div>
-          ))}
+        <div className="rooms-toolbar">
+          <label htmlFor="building-filter">เลือกอาคาร</label>
+          <select
+            id="building-filter"
+            value={selectedBuilding}
+            onChange={(event) => setSelectedBuilding(event.target.value)}
+          >
+            <option value="">ทุกอาคาร</option>
+            {buildings.map((building) => (
+              <option key={building} value={building}>{building}</option>
+            ))}
+          </select>
         </div>
+
+        {formError && <div className="rooms-error">{formError}</div>}
+        {!roomsLoading && visibleRooms.length === 0 && (
+          <div className="rooms-empty">
+            {selectedBuilding ? 'อาคารนี้ยังไม่มีห้อง' : 'ยังไม่มีห้อง กรุณาเพิ่มห้อง'}
+          </div>
+        )}
+        {Object.entries(roomsByBuilding).map(([building, buildingRooms]) => (
+          <section className="building-section" key={building}>
+            <h2 className="building-heading"><Building2 size={18} />{building}</h2>
+            <div className="rooms-grid">
+              {buildingRooms.map((room) => (
+                <div
+                  className="room-card"
+                  key={room.id}
+                  onClick={() => navigate(`/devices?room=${encodeURIComponent(room.id || '')}`)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate(`/devices?room=${encodeURIComponent(room.id || '')}`);
+                    }
+                  }}
+                >
+                  <div className="room-card-actions">
+                    <button
+                      className="mini-btn"
+                      aria-label="Edit room"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEditModal(room.id, room.name, room.building);
+                      }}
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                    <button
+                      className="mini-btn danger"
+                      aria-label="Delete room"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(room.id);
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+
+                  <div className="room-card-main">
+                    <div className="room-icon"><Building2 size={20} /></div>
+                    <div className="room-name-block">
+                      <div className="room-name">{room.name}</div>
+                    </div>
+                  </div>
+
+                  <div className="room-device-count">
+                    <span className="device-dot" />
+                    {room.devices} อุปกรณ์
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
       </div>
 
       {showModal && (
@@ -156,23 +200,57 @@ export default function RoomsPage() {
             <h3>{editingId ? 'แก้ไขห้อง' : 'เพิ่มห้องใหม่'}</h3>
             <form onSubmit={handleSubmit}>
               <div className="form-row">
-                <label>ชื่อห้อง</label>
+                <label htmlFor="room-building">อาคาร</label>
+                {addingBuilding ? (
+                  <div className="building-entry">
+                    <input
+                      id="room-building"
+                      value={form.building}
+                      onChange={(e) => setForm((prev) => ({ ...prev, building: e.target.value }))}
+                      placeholder="ระบุชื่ออาคารใหม่"
+                      required
+                    />
+                    {buildings.length > 0 && (
+                      <button type="button" className="building-mode-button" onClick={() => setAddingBuilding(false)}>
+                        เลือกอาคารเดิม
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <select
+                    id="room-building"
+                    value={form.building}
+                    onChange={(event) => {
+                      if (event.target.value === '__new_building__') {
+                        setForm((prev) => ({ ...prev, building: '' }));
+                        setAddingBuilding(true);
+                      } else {
+                        setForm((prev) => ({ ...prev, building: event.target.value }));
+                      }
+                    }}
+                    required
+                  >
+                    <option value="">เลือกอาคาร</option>
+                    {buildings.map((building) => (
+                      <option key={building} value={building}>{building}</option>
+                    ))}
+                    <option value="__new_building__">+ เพิ่มอาคารใหม่</option>
+                  </select>
+                )}
+              </div>
+
+              <div className="form-row">
+                <label htmlFor="room-name">ห้อง</label>
                 <input
+                  id="room-name"
                   value={form.name}
                   onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                  placeholder="เช่น Room 1"
+                  placeholder="เช่น ห้อง 101"
                   required
                 />
               </div>
 
-              <div className="form-row">
-                <label>ชั้น</label>
-                <input
-                  value={form.floor}
-                  onChange={(e) => setForm((prev) => ({ ...prev, floor: e.target.value }))}
-                  placeholder="เช่น 1 หรือ 2"
-                />
-              </div>
+              {formError && <div className="rooms-error">{formError}</div>}
 
               <div className="modal-actions">
                 <button type="button" className="secondary-btn" onClick={() => setShowModal(false)}>

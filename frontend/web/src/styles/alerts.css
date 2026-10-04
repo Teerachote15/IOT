@@ -81,6 +81,24 @@
   font-size: 15px;
 }
 
+.alerts-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(150px, 190px));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.alerts-filters input,
+.alerts-filters select {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  color: #1f2937;
+  font: inherit;
+}
+
 .alerts-list {
   display: flex;
   flex-direction: column;
@@ -93,9 +111,29 @@
   justify-content: space-between;
   gap: 18px;
   background: #f6f6f6;
-  border: 1px solid #ef4444;
+  border: 1px solid #cbd5e1;
   border-radius: 12px;
   padding: 16px 18px;
+}
+
+.alert-item.metric-power {
+  border-color: #f59e0b;
+}
+
+.alert-item.metric-temperature {
+  border-color: #3b82f6;
+}
+
+.alert-item.metric-humidity {
+  border-color: #10b981;
+}
+
+.alert-item.metric-other {
+  border-color: #94a3b8;
+}
+
+.alert-item.resolved {
+  opacity: 0.72;
 }
 
 .alert-left {
@@ -114,14 +152,24 @@
   justify-content: center;
 }
 
-.alert-icon.warning {
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
+.alert-icon.metric-power {
+  background: rgba(245, 158, 11, 0.14);
+  color: #d97706;
 }
 
-.alert-icon.info {
-  background: rgba(245, 158, 11, 0.12);
-  color: #f59e0b;
+.alert-icon.metric-temperature {
+  background: rgba(59, 130, 246, 0.14);
+  color: #2563eb;
+}
+
+.alert-icon.metric-humidity {
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
+}
+
+.alert-icon.metric-other {
+  background: rgba(100, 116, 139, 0.14);
+  color: #475569;
 }
 
 .alert-copy {
@@ -160,6 +208,10 @@
 .resolve-btn.resolved {
   border-color: #22c55e;
   color: #16a34a;
+}
+
+.resolve-btn:disabled {
+  cursor: default;
 }
 
 .alert-time {
@@ -204,5 +256,13 @@
   .alert-right {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .alerts-content {
+    padding: 16px;
+  }
+
+  .alerts-filters {
+    grid-template-columns: 1fr;
   }
 }

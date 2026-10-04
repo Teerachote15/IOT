@@ -13,10 +13,11 @@
 #define FIREBASE_USER_EMAIL "emp1@iot.com"
 #define FIREBASE_USER_PASSWORD "123456"
 
-// Device identity and DHT22 wiring
-#define DEVICE_ID "-P-UIjh4iFMvw5EzIJP_"
-#define DEVICE_NAME "IOT ROOM1"
-#define DEVICE_ROOM "Room1"
+// Device identity and DHT22 wiring.
+// GPIO4 is labeled D2 on NodeMCU and Wemos D1 mini boards.
+#define DEVICE_ID "IOT008"
+#define DEVICE_NAME "IOT008"
+#define DEVICE_ROOM "201"
 #define DHT_PIN 4
 #define DHT_TYPE DHT22
 

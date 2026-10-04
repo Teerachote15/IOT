@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Pencil, Plus, Trash2 } from 'lucide-react';
+import PageHeader from '../components/PageHeader';
 import { useRooms } from '../services/hooks';
 import { createRuleRecord, deleteRuleRecord, subscribeToRules, updateRuleRecord } from '../services/database';
 import '../styles/rules.css';
@@ -25,7 +26,7 @@ const defaultForm: RuleFormState = {
 function formatMetric(metric: string) {
   if (metric === 'temperature') return 'อุณหภูมิ';
   if (metric === 'humidity') return 'ความชื้น';
-  return 'พลังงาน';
+  return 'กำลังไฟ (W)';
 }
 
 function formatOperator(operator: string) {
@@ -127,20 +128,7 @@ export default function RulesPage() {
 
   return (
     <div className="rules-page">
-      <header className="rules-topbar">
-        <div className="rules-header">Rule-based Conditions</div>
-        <div className="rules-topbar-right">
-          <div className="live-pill">
-            <span className="live-dot" />
-            Live 5/7
-          </div>
-          <div className="date-pill">วัน / เดือน / ปี</div>
-          <div className="profile-box">
-            <span>สมชาย</span>
-            <div className="profile-avatar">ส</div>
-          </div>
-        </div>
-      </header>
+      <PageHeader title="Rule-based Conditions" />
 
       <div className="rules-content">
         <div className="rules-header-row">
@@ -231,7 +219,7 @@ export default function RulesPage() {
                   >
                     <option value="temperature">อุณหภูมิ</option>
                     <option value="humidity">ความชื้น</option>
-                    <option value="power">พลังงาน</option>
+                    <option value="power">กำลังไฟ (W)</option>
                   </select>
                 </label>
 

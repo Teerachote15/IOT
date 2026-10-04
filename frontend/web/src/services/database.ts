@@ -1,5 +1,17 @@
 import { database } from '../firebase';
-import { ref, onValue, get, push, set, update, remove } from 'firebase/database';
+import {
+  ref,
+  onValue,
+  get,
+  push,
+  set,
+  update,
+  remove,
+  runTransaction,
+  limitToLast,
+  orderByChild,
+  query,
+} from 'firebase/database';
 
 export interface SensorData {
   temperature: number;
@@ -12,6 +24,7 @@ export interface DeviceHistoryPoint {
   temperature?: number;
   humidity?: number;
   power?: number;
+  energy?: number;
   timestamp?: number;
 }
 
@@ -29,7 +42,11 @@ export interface Device {
   id: string;
   name: string;
   room: string;
+  roomId?: string;
+  building?: string;
   status: 'online' | 'offline' | 'problem';
+  enabled?: boolean;
+  hasRelay: boolean;
   temperature: number;
   humidity: number;
   power: number;
@@ -41,10 +58,20 @@ export interface Device {
   };
 }
 
+export const DEVICE_STALE_AFTER_MS = 2 * 60 * 1000;
+
+export function isDeviceDataStale(device: Pick<Device, 'lastSeen'>, now = Date.now()) {
+  return !device.lastSeen ||
+    now - device.lastSeen > DEVICE_STALE_AFTER_MS ||
+    device.lastSeen > now + 60_000;
+}
+
 export interface DeviceRecord {
   id?: string;
   name: string;
   room: string;
+  roomId?: string;
+  building?: string;
   status?: 'online' | 'offline' | 'problem';
   enabled?: boolean;
   last?: {
@@ -55,21 +82,35 @@ export interface DeviceRecord {
   };
 }
 
-export const createDeviceRecord = async (device: DeviceRecord) => {
-  const devicesRef = ref(database, 'devices');
-  const newRef = await push(devicesRef);
+export const createDeviceRecord = async (device: Omit<DeviceRecord, 'id' | 'name'>) => {
+  const devicesSnapshot = await get(ref(database, 'devices'));
+  let highestExistingId = 0;
+  devicesSnapshot.forEach((deviceSnapshot) => {
+    const identifiers = [deviceSnapshot.key, deviceSnapshot.child('name').val()];
+    identifiers.forEach((identifier) => {
+      if (typeof identifier !== 'string') return;
+      const match = /^IOT(\d+)$/i.exec(identifier);
+      if (match) highestExistingId = Math.max(highestExistingId, Number(match[1]));
+    });
+  });
+
+  const sequenceResult = await runTransaction(
+    ref(database, 'counters/deviceSequence'),
+    (currentValue) => Math.max(Number(currentValue) || 0, highestExistingId) + 1,
+    { applyLocally: false }
+  );
+  if (!sequenceResult.committed) {
+    throw new Error('ไม่สามารถจอง ID อุปกรณ์ได้');
+  }
+
+  const name = `IOT${String(sequenceResult.snapshot.val()).padStart(3, '0')}`;
   const devicePayload = {
     ...device,
+    name,
     status: device.status || 'online',
-    last: {
-      temperature: device.last?.temperature ?? 0,
-      humidity: device.last?.humidity ?? 0,
-      power: device.last?.power ?? 0,
-      timestamp: device.last?.timestamp ?? Date.now(),
-    },
   };
-  await set(newRef, devicePayload);
-  return { id: newRef.key || undefined, ...devicePayload } as DeviceRecord;
+  await set(ref(database, `devices/${name}`), devicePayload);
+  return { id: name, ...devicePayload } as DeviceRecord;
 };
 
 export const updateDeviceRecord = async (id: string, device: Partial<DeviceRecord>) => {
@@ -123,6 +164,7 @@ export const subscribeToAllDevices = (
           snapshot.forEach((childSnapshot) => {
             const deviceId = childSnapshot.key || '';
             const data = childSnapshot.val();
+            if (!data || typeof data !== 'object') return;
             const dhtLast = data.sensors?.dht22?.last || data.last || {};
             const pzemLast = data.sensors?.pzem?.last || {};
             const dhtHistory = data.sensors?.dht22?.history || data.history || {};
@@ -133,28 +175,29 @@ export const subscribeToAllDevices = (
                 Object.entries(pzemHistory).map(([key, value]) => [`pzem_${key}`, value])
               ),
             };
-            if (data.last || data.history || data.sensors) {
-              const resolvedStatus = data.enabled === false
-                ? 'offline'
-                : (data.status as 'online' | 'offline' | 'problem') ||
-                  (dhtLast.temperature ? 'online' : 'offline');
+            const resolvedStatus =
+              (data.status as 'online' | 'offline' | 'problem') ||
+              (dhtLast.temperature ? 'online' : 'offline');
 
-              devices.push({
-                id: deviceId,
-                name: data.name || `Device ${deviceId}`,
-                room: data.room || 'Unknown',
-                status: resolvedStatus,
-                temperature: dhtLast.temperature || 0,
-                humidity: dhtLast.humidity || 0,
-                power: pzemLast.power || dhtLast.power || 0,
-                lastSeen: Math.max(dhtLast.timestamp || 0, pzemLast.timestamp || 0) || Date.now(),
-                history,
-                sensors: {
-                  dht22: dhtLast,
-                  pzem: pzemLast,
-                },
-              });
-            }
+            devices.push({
+              id: deviceId,
+              name: data.name || `Device ${deviceId}`,
+              room: data.room || 'Unknown',
+              roomId: data.roomId,
+              building: data.building,
+              status: resolvedStatus,
+              enabled: data.enabled === true,
+              hasRelay: data.capabilities?.relay === true || Boolean(data.sensors?.pzem),
+              temperature: dhtLast.temperature || 0,
+              humidity: dhtLast.humidity || 0,
+              power: pzemLast.power || dhtLast.power || 0,
+              lastSeen: Math.max(dhtLast.timestamp || 0, pzemLast.timestamp || 0),
+              history,
+              sensors: {
+                dht22: dhtLast,
+                pzem: pzemLast,
+              },
+            });
           });
         }
         callback(devices);
@@ -248,6 +291,32 @@ export interface UserRecord {
   rooms?: string[];
 }
 
+const normalizeUserRecord = (id: string | undefined, value: unknown): UserRecord => {
+  const record =
+    value && typeof value === 'object'
+      ? (value as Record<string, unknown>)
+      : {};
+  const rawRooms = record.rooms;
+  const rooms = Array.isArray(rawRooms)
+    ? rawRooms.filter((room): room is string => typeof room === 'string')
+    : rawRooms && typeof rawRooms === 'object'
+      ? Object.values(rawRooms).filter(
+          (room): room is string => typeof room === 'string'
+        )
+      : [];
+
+  return {
+    id,
+    name:
+      typeof record.name === 'string' && record.name.trim()
+        ? record.name.trim()
+        : 'ไม่ระบุชื่อ',
+    email: typeof record.email === 'string' ? record.email : undefined,
+    role: typeof record.role === 'string' ? record.role : 'พนักงาน',
+    rooms,
+  };
+};
+
 export const subscribeToUsers = (
   callback: (users: UserRecord[]) => void,
   errorCallback?: (err: Error) => void
@@ -260,8 +329,7 @@ export const subscribeToUsers = (
         const list: UserRecord[] = [];
         if (snapshot.exists()) {
           snapshot.forEach((child) => {
-            const val = child.val();
-            list.push({ id: child.key || undefined, ...val });
+            list.push(normalizeUserRecord(child.key || undefined, child.val()));
           });
         }
         callback(list);
@@ -298,6 +366,7 @@ export const deleteUserRecord = async (id: string) => {
 export interface RoomRecord {
   id?: string;
   name: string;
+  building?: string;
   floor?: string;
   createdAt?: number;
 }
@@ -341,14 +410,46 @@ export const createRoomRecord = async (room: RoomRecord) => {
   return { id: newRef.key, ...room, createdAt: Date.now() } as RoomRecord;
 };
 
-export const updateRoomRecord = async (id: string, room: Partial<RoomRecord>) => {
-  const roomRef = ref(database, `rooms/${id}`);
-  await update(roomRef, room);
+export const updateRoomRecord = async (
+  id: string,
+  room: Partial<RoomRecord>,
+  previousName?: string
+) => {
+  const updates: Record<string, unknown> = {};
+  Object.entries(room).forEach(([key, value]) => {
+    if (value !== undefined) updates[`rooms/${id}/${key}`] = value;
+  });
+
+  if (room.name !== undefined || room.building !== undefined) {
+    const devicesSnapshot = await get(ref(database, 'devices'));
+    devicesSnapshot.forEach((deviceSnapshot) => {
+      const deviceRoomId = deviceSnapshot.child('roomId').val();
+      const legacyRoomMatch =
+        !deviceRoomId && previousName && deviceSnapshot.child('room').val() === previousName;
+      if (deviceRoomId !== id && !legacyRoomMatch) return;
+      const devicePath = `devices/${deviceSnapshot.key}`;
+      if (room.name !== undefined) updates[`${devicePath}/room`] = room.name;
+      if (room.building !== undefined) updates[`${devicePath}/building`] = room.building;
+      if (legacyRoomMatch) updates[`${devicePath}/roomId`] = id;
+    });
+  }
+
+  await update(ref(database), updates);
 };
 
-export const deleteRoomRecord = async (id: string) => {
-  const roomRef = ref(database, `rooms/${id}`);
-  await remove(roomRef);
+export const deleteRoomRecord = async (id: string, roomName?: string) => {
+  const devicesSnapshot = await get(ref(database, 'devices'));
+  let assignedDevice = false;
+  devicesSnapshot.forEach((deviceSnapshot) => {
+    const deviceRoomId = deviceSnapshot.child('roomId').val();
+    const legacyRoomMatch =
+      !deviceRoomId && roomName && deviceSnapshot.child('room').val() === roomName;
+    if (deviceRoomId === id || legacyRoomMatch) assignedDevice = true;
+  });
+  if (assignedDevice) {
+    throw new Error('ย้ายอุปกรณ์ออกจากห้องนี้ก่อนลบห้อง');
+  }
+  await remove(ref(database, `rooms/${id}`));
 };
 
 // ---------------- Rules CRUD ----------------
@@ -426,7 +527,9 @@ export const deleteRuleRecord = async (id: string) => {
 export interface AlertRecord {
   id?: string;
   deviceId?: string;
+  ruleId?: string;
   deviceName?: string;
+  title?: string;
   room?: string;
   metric?: string;
   threshold?: number;
@@ -435,6 +538,61 @@ export interface AlertRecord {
   severity?: 'info' | 'warning' | 'critical';
   resolved?: boolean;
 }
+
+export interface DeviceControlLog {
+  id?: string;
+  deviceId: string;
+  deviceName: string;
+  requestedState: boolean;
+  outcome: 'pending' | 'sent' | 'failed';
+  actorUid?: string;
+  actorEmail?: string;
+  actorName?: string;
+  requestedAt: number;
+  completedAt?: number;
+  error?: string;
+}
+
+export const createDeviceControlLog = async (
+  log: Omit<DeviceControlLog, 'id'>,
+) => {
+  const logRef = push(ref(database, 'deviceControlLogs'));
+  await set(logRef, log);
+  if (!logRef.key) throw new Error('ไม่สามารถสร้างบันทึกคำสั่งอุปกรณ์ได้');
+  return logRef.key;
+};
+
+export const updateDeviceControlLog = async (
+  id: string,
+  updateFields: Partial<DeviceControlLog>,
+) => {
+  await update(ref(database, `deviceControlLogs/${id}`), updateFields);
+};
+
+export const subscribeToDeviceControlLogs = (
+  callback: (logs: DeviceControlLog[]) => void,
+  errorCallback?: (error: Error) => void,
+) => {
+  const logsQuery = query(
+    ref(database, 'deviceControlLogs'),
+    orderByChild('requestedAt'),
+    limitToLast(100),
+  );
+  return onValue(
+    logsQuery,
+    (snapshot) => {
+      const logs: DeviceControlLog[] = [];
+      snapshot.forEach((child) => {
+        const value = child.val();
+        if (value && typeof value === 'object') {
+          logs.push({ id: child.key || undefined, ...value });
+        }
+      });
+      callback(logs.sort((a, b) => b.requestedAt - a.requestedAt));
+    },
+    (error) => errorCallback?.(error),
+  );
+};
 
 export const subscribeToAlerts = (
   callback: (alerts: AlertRecord[]) => void,
@@ -469,4 +627,3 @@ export const updateAlertRecord = async (id: string, alert: Partial<AlertRecord>)
   const alertRef = ref(database, `alerts/${id}`);
   await update(alertRef, alert);
 };
-

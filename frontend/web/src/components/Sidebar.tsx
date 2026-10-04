@@ -103,7 +103,6 @@ export default function Sidebar() {
 
       <div className="sidebar-footer">
         <div className="footer-section">
-          <h4>สนามข้างเคียง</h4>
           <Link to="/guide" className="footer-link">
             <HelpCircle size={16} />
             ผู้แนะนำ

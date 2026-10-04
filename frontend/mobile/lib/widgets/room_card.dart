@@ -4,31 +4,22 @@ import '../models/room_model.dart';
 import '../theme/app_color.dart';
 
 class RoomCard extends StatelessWidget {
-
   final RoomModel room;
 
-  const RoomCard({
-    super.key,
-    required this.room,
-  });
+  const RoomCard({super.key, required this.room});
 
   @override
   Widget build(BuildContext context) {
-
     return Card(
-
       elevation: 2,
 
       shape: RoundedRectangleBorder(
-        side: const BorderSide(
-          color: AppColor.border,
-        ),
+        side: const BorderSide(color: AppColor.border),
 
         borderRadius: BorderRadius.circular(20),
       ),
 
       child: ListTile(
-
         leading: CircleAvatar(
           radius: 25,
           backgroundColor: Colors.grey.shade200,
@@ -37,9 +28,7 @@ class RoomCard extends StatelessWidget {
 
         title: Text(
           room.roomName,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
 
         subtitle: Text(room.floor),
@@ -50,16 +39,11 @@ class RoomCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
 
           children: [
-
             Text(
-              room.online
-                  ? "● Online"
-                  : "● Offline",
+              room.online ? "● Online" : "● Offline",
 
               style: TextStyle(
-                color: room.online
-                    ? AppColor.green
-                    : AppColor.red,
+                color: room.online ? AppColor.green : AppColor.red,
 
                 fontWeight: FontWeight.bold,
               ),
@@ -67,9 +51,7 @@ class RoomCard extends StatelessWidget {
 
             const SizedBox(height: 4),
 
-            Text(
-              "${room.temperature}° / ${room.humidity}%",
-            )
+            Text("${room.temperature}° / ${room.humidity}%"),
           ],
         ),
       ),

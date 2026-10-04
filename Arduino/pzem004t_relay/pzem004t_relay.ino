@@ -30,8 +30,10 @@ PZEM004Tv30 pzem(
 // =========================
 unsigned long lastReadingAt = 0;
 unsigned long lastControlAt = 0;
+unsigned long lastCapabilityAttemptAt = 0;
 
 bool relayEnabled = false;
+bool relayCapabilityRegistered = false;
 
 
 // ======================================================
@@ -89,20 +91,52 @@ void setRelay(bool enabled) {
   String devicePath =
     String("devices/") + DEVICE_ID;
 
-  Firebase.RTDB.setBool(
-    &firebaseData,
-    (devicePath + "/enabled").c_str(),
-    enabled
-  );
+  if (!Firebase.RTDB.setBool(
+        &firebaseData,
+        (devicePath + "/enabled").c_str(),
+        enabled)) {
+    Serial.print("Failed to save relay command: ");
+    Serial.println(firebaseData.errorReason());
+  }
 
-  Firebase.RTDB.setString(
-    &firebaseData,
-    (devicePath + "/status").c_str(),
-    enabled ? "online" : "offline"
-  );
+  if (!Firebase.RTDB.setBool(
+        &firebaseData,
+        (devicePath + "/relayState").c_str(),
+        enabled)) {
+    Serial.print("Failed to update relay state: ");
+    Serial.println(firebaseData.errorReason());
+  }
 
   Serial.print("Relay: ");
   Serial.println(enabled ? "ON" : "OFF");
+}
+
+void registerRelayCapability() {
+  String capabilityPath =
+    String("devices/") + DEVICE_ID + "/capabilities/relay";
+
+  if (!Firebase.RTDB.setBool(
+        &firebaseData,
+        capabilityPath.c_str(),
+        true)) {
+    Serial.print("Failed to register relay capability: ");
+    Serial.println(firebaseData.errorReason());
+    return;
+  }
+
+  String statePath =
+    String("devices/") + DEVICE_ID + "/relayState";
+
+  if (!Firebase.RTDB.setBool(
+        &firebaseData,
+        statePath.c_str(),
+        relayEnabled)) {
+    Serial.print("Failed to initialize relay state: ");
+    Serial.println(firebaseData.errorReason());
+    return;
+  }
+
+  relayCapabilityRegistered = true;
 }
 
 
@@ -131,6 +165,176 @@ void readRelayCommand() {
   if (requested != relayEnabled) {
     setRelay(requested);
   }
+}
+
+bool isPowerRuleEnabled(FirebaseJson &rule) {
+  FirebaseJsonData enabledData;
+  if (!rule.get(enabledData, "enabled")) return true;
+  if (enabledData.typeNum == FirebaseJson::JSON_BOOL) return enabledData.boolValue;
+  return enabledData.stringValue != "false";
+}
+
+bool powerRuleMatchesRoom(FirebaseJson &rule) {
+  size_t count = rule.iteratorBegin();
+  bool hasRooms = false;
+  bool matches = false;
+
+  for (size_t index = 0; index < count; index++) {
+    int type;
+    String key;
+    String value;
+    rule.iteratorGet(index, type, key, value);
+    if (!key.startsWith("rooms/")) continue;
+    hasRooms = true;
+    value.replace("\"", "");
+    if (value == DEVICE_ROOM) matches = true;
+  }
+
+  rule.iteratorEnd();
+  return !hasRooms || matches;
+}
+
+void savePowerAlert(
+  const String &ruleId,
+  FirebaseJson &rule,
+  float value,
+  double timestamp
+) {
+  FirebaseJsonData thresholdData;
+  FirebaseJsonData nameData;
+  rule.get(thresholdData, "threshold");
+  rule.get(nameData, "name");
+  float threshold = thresholdData.to<float>();
+
+  FirebaseJson alert;
+  alert.set("deviceId", DEVICE_ID);
+  alert.set("deviceName", DEVICE_NAME);
+  alert.set("room", DEVICE_ROOM);
+  alert.set("ruleId", ruleId);
+  alert.set("metric", "power");
+  alert.set("value", value);
+  alert.set("threshold", threshold);
+  alert.set("severity", "warning");
+  alert.set("title", nameData.to<String>());
+  alert.set("timestamp", timestamp);
+  alert.set("resolved", false);
+
+  String existingAlertPath;
+  if (Firebase.RTDB.getJSON(&firebaseData, "/alerts")) {
+    FirebaseJson alerts;
+    alerts.setJsonData(firebaseData.jsonString());
+    size_t alertCount = alerts.iteratorBegin();
+
+    for (size_t index = 0; index < alertCount; index++) {
+      int type;
+      String alertId;
+      String jsonValue;
+      alerts.iteratorGet(index, type, alertId, jsonValue);
+      if (alertId.indexOf("/") >= 0) continue;
+
+      FirebaseJson existingAlert;
+      existingAlert.setJsonData(jsonValue);
+      FirebaseJsonData deviceData;
+      FirebaseJsonData ruleData;
+      FirebaseJsonData resolvedData;
+      existingAlert.get(deviceData, "deviceId");
+      existingAlert.get(ruleData, "ruleId");
+      existingAlert.get(resolvedData, "resolved");
+
+      if (deviceData.to<String>() == DEVICE_ID &&
+          ruleData.to<String>() == ruleId &&
+          resolvedData.to<bool>() == false) {
+        existingAlertPath = String("/alerts/") + alertId;
+        break;
+      }
+    }
+
+    alerts.iteratorEnd();
+  } else if (firebaseData.errorReason() != "path not exist") {
+    Serial.print("Failed to read existing alerts: ");
+    Serial.println(firebaseData.errorReason());
+    return;
+  }
+
+  bool success = existingAlertPath.length() > 0
+    ? Firebase.RTDB.setJSON(&firebaseData, existingAlertPath.c_str(), &alert)
+    : Firebase.RTDB.pushJSON(&firebaseData, "/alerts", &alert);
+
+  if (success) {
+    Serial.println(existingAlertPath.length() > 0
+      ? "Power alert updated in Firebase"
+      : "Power alert created in Firebase");
+  } else {
+    Serial.print("Failed to save power alert: ");
+    Serial.println(firebaseData.errorReason());
+  }
+}
+
+void evaluatePowerRules(double timestamp, float power) {
+  if (!Firebase.RTDB.getJSON(&firebaseData, "/rules")) {
+    if (firebaseData.errorReason() != "path not exist") {
+      Serial.print("Failed to read rules: ");
+      Serial.println(firebaseData.errorReason());
+    }
+    return;
+  }
+
+  FirebaseJson rules;
+  rules.setJsonData(firebaseData.jsonString());
+  size_t count = rules.iteratorBegin();
+
+  for (size_t index = 0; index < count; index++) {
+    int type;
+    String ruleId;
+    String jsonValue;
+    rules.iteratorGet(index, type, ruleId, jsonValue);
+    if (ruleId.indexOf("/") >= 0) continue;
+
+    FirebaseJson rule;
+    rule.setJsonData(jsonValue);
+    if (!isPowerRuleEnabled(rule) || !powerRuleMatchesRoom(rule)) continue;
+
+    FirebaseJsonData metricData;
+    FirebaseJsonData comparatorData;
+    FirebaseJsonData thresholdData;
+    rule.get(metricData, "metric");
+    if (metricData.to<String>() != "power") continue;
+    rule.get(comparatorData, "comparator");
+    rule.get(thresholdData, "threshold");
+
+    String comparator = comparatorData.to<String>();
+    if (comparator.length() == 0) {
+      FirebaseJsonData operatorData;
+      rule.get(operatorData, "operator");
+      String operatorName = operatorData.to<String>();
+      comparator = operatorName == "less_than" ? "<"
+        : operatorName == "equal" ? "="
+        : operatorName == "greater_than" ? ">"
+        : "";
+    }
+
+    if (comparator != ">" && comparator != "<" && comparator != "=") {
+      Serial.printf("Skipping rule %s: invalid comparator\n", ruleId.c_str());
+      continue;
+    }
+
+    float threshold = thresholdData.to<float>();
+    bool triggered = comparator == "<" ? power < threshold
+      : comparator == "=" ? power == threshold
+      : power > threshold;
+
+    Serial.printf(
+      "Power rule %s: %.2f W %s %.2f W, triggered %s\n",
+      ruleId.c_str(),
+      power,
+      comparator.c_str(),
+      threshold,
+      triggered ? "YES" : "NO"
+    );
+    if (triggered) savePowerAlert(ruleId, rule, power, timestamp);
+  }
+
+  rules.iteratorEnd();
 }
 
 
@@ -244,6 +448,8 @@ void savePowerReading() {
     return;
   }
 
+  evaluatePowerRules(timestamp, power);
+
 
   // ==================================================
   // History
@@ -301,7 +507,7 @@ void savePowerReading() {
   Firebase.RTDB.setString(
     &firebaseData,
     (devicePath + "/status").c_str(),
-    relayEnabled ? "online" : "offline"
+    "online"
   );
 
 
@@ -436,6 +642,12 @@ void loop() {
 
     delay(100);
     return;
+  }
+  if (!relayCapabilityRegistered &&
+      (lastCapabilityAttemptAt == 0 ||
+       millis() - lastCapabilityAttemptAt >= CONTROL_INTERVAL_MS)) {
+    lastCapabilityAttemptAt = millis();
+    registerRelayCapability();
   }
   // --------------------------------------
   // Relay control

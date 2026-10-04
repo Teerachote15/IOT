@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import Header from '../components/Header';
+import PageHeader from '../components/PageHeader';
 import UserCard from '../components/UserCard';
 import '../styles/users.css';
 import { useUsers, useAllDevices } from '../services/hooks';
@@ -112,7 +112,7 @@ export default function UsersPage() {
 
   return (
     <div className="users-page">
-      <Header />
+      <PageHeader title="จัดการผู้ใช้งาน" />
       <div className="users-content">
         <div className="users-header">
           <h2>จัดการผู้ใช้งาน</h2>

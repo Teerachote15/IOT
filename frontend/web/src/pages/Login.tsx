@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { LockKeyhole, LogIn, Mail, Wifi } from 'lucide-react';
 import { loginWithEmail } from '../services/auth';
 import '../styles/auth.css';
@@ -72,10 +72,6 @@ export default function LoginPage() {
             {submitting ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}
           </button>
         </form>
-
-        <p className="auth-secondary-link">
-          ยังไม่มีผู้ดูแลระบบ? <Link to="/admin-setup">สร้างบัญชี Admin</Link>
-        </p>
       </section>
     </main>
   );

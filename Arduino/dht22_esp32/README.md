@@ -1,10 +1,10 @@
-# ESP32 + DHT22 Firebase Sensor
+# ESP8266 + DHT22 Firebase Sensor
 
 ## Wiring
 
-- DHT22 VCC -> ESP32 3V3
-- DHT22 GND -> ESP32 GND
-- DHT22 DATA -> ESP32 GPIO 4
+- DHT22 VCC -> ESP8266 3V3
+- DHT22 GND -> ESP8266 GND
+- DHT22 DATA -> ESP8266 GPIO4 (D2 on NodeMCU and Wemos D1 mini)
 - Add a 4.7k-10k pull-up resistor between DATA and 3V3 when using a bare DHT22 sensor.
 
 ## Arduino IDE libraries
@@ -15,7 +15,12 @@ Install these libraries from the Arduino Library Manager:
 2. Adafruit Unified Sensor
 3. Firebase Arduino Client Library for ESP8266 and ESP32 by Mobizt
 
-Select an ESP32 board, for example `DOIT ESP32 DEVKIT V1`.
+The Firebase library used by the sketch provides the
+`Firebase_ESP_Client.h` header. Do not install the legacy Firebase ESP8266
+library that uses `FirebaseESP8266.h`.
+
+Select an ESP8266 board, for example `NodeMCU 1.0 (ESP-12E Module)` or
+`LOLIN(WEMOS) D1 mini`.
 
 ## Configuration
 
@@ -47,9 +52,13 @@ whole `devices/{DEVICE_ID}` node or the DHT22 values.
 
 The web history page reads the nested DHT22 history path. The device sends one reading every 60 seconds.
 
+The ESP8266 checks enabled temperature and humidity rules from `/rules` and
+writes matching alerts directly to `/alerts`; this does not require Firebase
+Cloud Functions. PZEM power rules are evaluated by the PZEM controller.
+
 ## Upload
 
 1. Open `dht22_esp32.ino` in Arduino IDE.
 2. Update `config.h`.
-3. Select the ESP32 board and COM port.
+3. Select the ESP8266 board and COM port.
 4. Upload and open Serial Monitor at `115200` baud.

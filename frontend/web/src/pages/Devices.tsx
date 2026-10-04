@@ -1,30 +1,31 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import PageHeader from '../components/PageHeader';
+import { auth } from '../firebase';
 import { useAllDevices, useRooms } from '../services/hooks';
 import {
+  createDeviceControlLog,
   createDeviceRecord,
+  DeviceControlLog,
   deleteDeviceRecord,
+  isDeviceDataStale,
+  subscribeToDeviceControlLogs,
   updateDeviceRecord,
+  updateDeviceControlLog,
 } from '../services/database';
 import '../styles/devices.css';
 
 interface DeviceFormState {
-  name: string;
   room: string;
+  roomId: string;
   status: 'online' | 'offline' | 'problem';
-  temperature: number;
-  humidity: number;
-  power: number;
 }
 
 const defaultFormState: DeviceFormState = {
-  name: '',
   room: '',
+  roomId: '',
   status: 'online',
-  temperature: 0,
-  humidity: 0,
-  power: 0,
 };
 
 function getStatusLabel(status: string) {
@@ -37,8 +38,10 @@ function getStatusLabel(status: string) {
 }
 
 function getLastSeenText(timestamp: number): string {
+  if (!timestamp) return 'ยังไม่มีข้อมูล';
   const diff = Date.now() - timestamp;
 
+  if (diff < 0) return 'เวลาไม่ถูกต้อง';
   if (diff < 60000) return 'เมื่อสักครู่';
   if (diff < 3600000) return `${Math.floor(diff / 60000)} นาทีที่แล้ว`;
   if (diff < 86400000) return `${Math.floor(diff / 3600000)} ชั่วโมงที่แล้ว`;
@@ -50,16 +53,41 @@ export default function DevicesPage() {
   const { devices, loading, error } = useAllDevices();
   const { rooms } = useRooms();
   const [search, setSearch] = useState('');
+  const [roomFilterId, setRoomFilterId] = useState('');
 
   useEffect(() => {
     const roomFromQuery = searchParams.get('room');
-    if (roomFromQuery) {
-      setSearch(roomFromQuery);
-    }
+    setRoomFilterId(roomFromQuery || '');
   }, [searchParams]);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<DeviceFormState>(defaultFormState);
+  const [formError, setFormError] = useState('');
+  const [savingDevice, setSavingDevice] = useState(false);
+  const [pendingRelayId, setPendingRelayId] = useState<string | null>(null);
+  const [relayError, setRelayError] = useState<string | null>(null);
+  const [controlLogs, setControlLogs] = useState<DeviceControlLog[]>([]);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const unsubscribe = subscribeToDeviceControlLogs(
+      setControlLogs,
+      (subscriptionError) => setAuditError(subscriptionError.message),
+    );
+    const interval = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => {
+      unsubscribe();
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const getRoomLabel = (device: (typeof devices)[number]) => {
+    const assignedRoom = rooms.find((room) => room.id === device.roomId);
+    const building = assignedRoom?.building || assignedRoom?.floor || device.building;
+    const roomName = assignedRoom?.name || device.room;
+    return building ? `${building} · ${roomName}` : roomName;
+  };
 
   const filteredDevices = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -68,69 +96,87 @@ export default function DevicesPage() {
     return devices.filter((device) => {
       return (
         device.name.toLowerCase().includes(keyword) ||
-        device.room.toLowerCase().includes(keyword)
+        getRoomLabel(device).toLowerCase().includes(keyword) ||
+        (device.building || '').toLowerCase().includes(keyword)
       );
     });
-  }, [devices, search]);
+  }, [devices, rooms, search]);
+  const visibleDevices = roomFilterId
+    ? filteredDevices.filter((device) => {
+        const selectedRoom = rooms.find((room) => room.id === roomFilterId);
+        return selectedRoom
+          ? device.roomId === selectedRoom.id ||
+              (!device.roomId && device.room === selectedRoom.name)
+          : device.room === roomFilterId;
+      })
+      : filteredDevices;
+  const editingDevice = devices.find((device) => device.id === editingId);
 
   const openCreateModal = () => {
     setEditingId(null);
     setForm(defaultFormState);
+    setFormError('');
     setShowModal(true);
   };
 
-  const openEditModal = (device: { id?: string; name: string; room: string; status: string; temperature: number; humidity: number; power: number }) => {
+  const openEditModal = (device: { id?: string; name: string; room: string; roomId?: string; building?: string; status: string }) => {
     if (!device.id) return;
+    const matchingRooms = rooms.filter((room) =>
+      room.name === device.room &&
+      (!device.building || (room.building || room.floor) === device.building)
+    );
+    const assignedRoom = rooms.find((room) => room.id === device.roomId) ||
+      (matchingRooms.length === 1 ? matchingRooms[0] : undefined);
     setEditingId(device.id);
     setForm({
-      name: device.name,
-      room: device.room,
+      room: assignedRoom?.name || device.room,
+      roomId: assignedRoom?.id || '',
       status: (device.status as 'online' | 'offline' | 'problem') || 'online',
-      temperature: Number(device.temperature) || 0,
-      humidity: Number(device.humidity) || 0,
-      power: Number(device.power) || 0,
     });
+    setFormError('');
     setShowModal(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const selectedRoom = rooms.find((room) => room.id === form.roomId);
+    if (!selectedRoom?.id) {
+      setFormError('กรุณาเลือกห้องจากรายการ');
+      return;
+    }
+    setFormError('');
     const payload = {
-      name: form.name.trim(),
-      room: form.room.trim(),
+      room: selectedRoom.name,
+      roomId: selectedRoom.id,
+      building: selectedRoom.building || selectedRoom.floor || 'ไม่ระบุอาคาร',
       status: form.status,
-      enabled: form.status === 'online',
-      last: {
-        temperature: Number(form.temperature) || 0,
-        humidity: Number(form.humidity) || 0,
-        power: Number(form.power) || 0,
-        timestamp: Date.now(),
-      },
     };
 
-    if (!payload.name || !payload.room) return;
-
-    if (editingId) {
-      await updateDeviceRecord(editingId, {
-        name: payload.name,
-        room: payload.room,
-        status: payload.status,
-        enabled: payload.enabled,
-        last: payload.last,
-      });
-    } else {
-      await createDeviceRecord({
-        name: payload.name,
-        room: payload.room,
-        status: payload.status,
-        enabled: payload.enabled,
-        last: payload.last,
-      });
+    setSavingDevice(true);
+    try {
+      if (editingId) {
+        await updateDeviceRecord(editingId, {
+          room: payload.room,
+          roomId: payload.roomId,
+          building: payload.building,
+          status: payload.status,
+        });
+      } else {
+        await createDeviceRecord({
+          room: payload.room,
+          roomId: payload.roomId,
+          building: payload.building,
+          status: payload.status,
+        });
+      }
+      setShowModal(false);
+      setForm(defaultFormState);
+      setEditingId(null);
+    } catch (saveError) {
+      setFormError(saveError instanceof Error ? saveError.message : 'ไม่สามารถบันทึกอุปกรณ์ได้');
+    } finally {
+      setSavingDevice(false);
     }
-
-    setShowModal(false);
-    setForm(defaultFormState);
-    setEditingId(null);
   };
 
   const handleDelete = async (id?: string) => {
@@ -139,38 +185,71 @@ export default function DevicesPage() {
     await deleteDeviceRecord(id);
   };
 
-  const toggleDeviceStatus = async (id?: string, status?: string) => {
-    if (!id) return;
-    const nextStatus = status === 'online' ? 'offline' : 'online';
-    const confirmMessage = nextStatus === 'online'
-      ? 'ต้องการเปิดอุปกรณ์นี้หรือไม่?'
-      : 'ต้องการปิดอุปกรณ์นี้หรือไม่?';
+  const toggleRelay = async (id: string, enabled: boolean) => {
+    const device = devices.find((item) => item.id === id);
+    const user = auth.currentUser;
+    if (!device || !user) {
+      setRelayError('ไม่พบอุปกรณ์หรือบัญชีผู้ใช้ กรุณาเข้าสู่ระบบใหม่');
+      return;
+    }
 
-    const confirmed = window.confirm(confirmMessage);
-    if (!confirmed) return;
+    const requestedState = !enabled;
+    setPendingRelayId(id);
+    setRelayError(null);
+    let logId: string;
+    try {
+      logId = await createDeviceControlLog({
+        deviceId: id,
+        deviceName: device.name,
+        requestedState,
+        outcome: 'pending',
+        actorUid: user.uid,
+        ...(user.email ? { actorEmail: user.email } : {}),
+        actorName: user.displayName || user.email || user.uid,
+        requestedAt: Date.now(),
+      });
+    } catch (err) {
+      setRelayError(`บันทึกประวัติคำสั่งไม่สำเร็จ จึงไม่ได้ส่งคำสั่ง: ${err instanceof Error ? err.message : 'เกิดข้อผิดพลาด'}`);
+      setPendingRelayId(null);
+      return;
+    }
 
-    await updateDeviceRecord(id, {
-      status: nextStatus,
-      enabled: nextStatus === 'online',
-    });
+    try {
+      await updateDeviceRecord(id, { enabled: requestedState });
+    } catch (err) {
+      const commandError = err instanceof Error ? err.message : 'เกิดข้อผิดพลาด';
+      try {
+        await updateDeviceControlLog(logId, {
+          outcome: 'failed',
+          completedAt: Date.now(),
+          error: commandError,
+        });
+        setRelayError(`สั่งงานรีเลย์ไม่สำเร็จ: ${commandError}`);
+      } catch (auditUpdateError) {
+        setRelayError(
+          `สั่งงานรีเลย์ไม่สำเร็จ (${commandError}) และบันทึกผลคำสั่งไม่ได้ (${auditUpdateError instanceof Error ? auditUpdateError.message : 'เกิดข้อผิดพลาด'})`,
+        );
+      }
+      setPendingRelayId(null);
+      return;
+    }
+
+    try {
+      await updateDeviceControlLog(logId, {
+        outcome: 'sent',
+        completedAt: Date.now(),
+      });
+    } catch (auditUpdateError) {
+      setRelayError(
+        `ส่งคำสั่งแล้ว แต่บันทึกผลสำเร็จไม่ได้: ${auditUpdateError instanceof Error ? auditUpdateError.message : 'เกิดข้อผิดพลาด'}`,
+      );
+    }
+    setPendingRelayId(null);
   };
 
   return (
     <div className="devices-page">
-      <header className="devices-topbar">
-        <div className="devices-brand">อุปกรณ์ IoT</div>
-        <div className="devices-topbar-right">
-          <div className="live-pill">
-            <span className="live-dot" />
-            Live 5/7
-          </div>
-          <div className="date-pill">วัน / เดือน / ปี</div>
-          <div className="profile-box">
-            <span>สมชาย</span>
-            <div className="profile-avatar">ส</div>
-          </div>
-        </div>
-      </header>
+      <PageHeader title="อุปกรณ์ IoT" />
 
       <div className="devices-content">
         <div className="devices-header-row">
@@ -199,6 +278,7 @@ export default function DevicesPage() {
 
         {loading && <div className="devices-state">กำลังโหลดข้อมูล...</div>}
         {error && <div className="devices-state error">{error.message}</div>}
+        {relayError && <div className="devices-state error">{relayError}</div>}
 
         <div className="devices-table-wrap">
           <table className="devices-table">
@@ -209,36 +289,44 @@ export default function DevicesPage() {
                 <th>สถานะ</th>
                 <th>อุณหภูมิ</th>
                 <th>ความชื้น</th>
-                <th>พลังงาน</th>
-                <th>เวลา</th>
+                <th>กำลังไฟ</th>
+                <th>อัปเดตล่าสุด</th>
                 <th>เปิด/ปิด</th>
                 <th>แก้ไข</th>
                 <th>ลบ</th>
               </tr>
             </thead>
             <tbody>
-              {filteredDevices.map((device) => (
+              {visibleDevices.map((device) => (
                 <tr key={device.id}>
                   <td>{device.name}</td>
-                  <td>{device.room}</td>
+                  <td>{getRoomLabel(device)}</td>
                   <td>
-                    <span className={`row-status ${device.status}`}>
-                      {getStatusLabel(device.status)}
+                    <span className={`row-status ${device.status === 'online' && isDeviceDataStale(device, now) ? 'offline' : device.status}`}>
+                      {device.status === 'online' && isDeviceDataStale(device, now) ? 'ข้อมูลล่าช้า' : getStatusLabel(device.status)}
                     </span>
                   </td>
-                  <td>{device.temperature.toFixed(1)}°C</td>
-                  <td>{device.humidity.toFixed(1)}%</td>
-                  <td>{device.power.toFixed(2)} kWh</td>
+                  <td>{device.sensors?.dht22?.temperature == null ? '—' : `${device.sensors.dht22.temperature.toFixed(1)}°C`}</td>
+                  <td>{device.sensors?.dht22?.humidity == null ? '—' : `${device.sensors.dht22.humidity.toFixed(1)}%`}</td>
+                  <td>{device.sensors?.pzem?.power == null ? '—' : `${device.sensors.pzem.power.toFixed(1)} W`}</td>
                   <td>{getLastSeenText(device.lastSeen)}</td>
                   <td>
-                    <button
-                      className={`toggle-switch ${device.status === 'online' ? 'on' : ''}`}
-                      onClick={() => toggleDeviceStatus(device.id, device.status)}
-                      type="button"
-                      aria-label="Toggle device status"
-                    >
-                      <span className="toggle-knob" />
-                    </button>
+                    {device.hasRelay ? (
+                      <button
+                        className={`toggle-switch ${device.enabled ? 'on' : ''}`}
+                        onClick={() => toggleRelay(device.id, device.enabled ?? false)}
+                        type="button"
+                        disabled={pendingRelayId === device.id}
+                        aria-label={device.enabled ? 'ปิดปลั๊ก' : 'เปิดปลั๊ก'}
+                        aria-checked={device.enabled}
+                        role="switch"
+                        title={device.enabled ? 'ปลั๊กเปิดอยู่' : 'ปลั๊กปิดอยู่'}
+                      >
+                        <span className="toggle-knob" />
+                      </button>
+                    ) : (
+                      <span aria-label="อุปกรณ์นี้ไม่มีรีเลย์">—</span>
+                    )}
                   </td>
                   <td>
                     <button
@@ -265,10 +353,54 @@ export default function DevicesPage() {
             </tbody>
           </table>
 
-          {!loading && filteredDevices.length === 0 && (
+          {!loading && visibleDevices.length === 0 && (
             <div className="devices-empty">ไม่มีอุปกรณ์ที่ตรงกับคำค้นหา</div>
           )}
         </div>
+
+        <section className="control-audit">
+          <div className="control-audit-heading">
+            <div>
+              <h2>ประวัติการควบคุมปลั๊ก</h2>
+              <p>บันทึกคำสั่งล่าสุดไม่เกิน 100 รายการ · “ส่งแล้ว” หมายถึงบันทึกคำสั่งใน Firebase ไม่ใช่การยืนยันจากตัวอุปกรณ์</p>
+            </div>
+          </div>
+          {auditError && <div className="devices-state error">โหลดประวัติคำสั่งไม่สำเร็จ: {auditError}</div>}
+          {!auditError && controlLogs.length === 0 && (
+            <div className="devices-empty">ยังไม่มีประวัติการสั่งงานรีเลย์</div>
+          )}
+          {controlLogs.length > 0 && (
+            <div className="control-audit-wrap">
+              <table className="devices-table control-audit-table">
+                <thead>
+                  <tr>
+                    <th>เวลา</th>
+                    <th>อุปกรณ์</th>
+                    <th>คำสั่ง</th>
+                    <th>ผู้สั่ง</th>
+                    <th>ผลลัพธ์</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {controlLogs.map((log) => (
+                    <tr key={log.id}>
+                      <td>{new Date(log.requestedAt).toLocaleString('th-TH')}</td>
+                      <td>{log.deviceName}</td>
+                      <td>{log.requestedState ? 'เปิด' : 'ปิด'}</td>
+                      <td>{log.actorName || log.actorEmail || log.actorUid || 'ไม่ทราบผู้ใช้'}</td>
+                      <td>
+                        <span className={`row-status ${log.outcome === 'sent' ? 'online' : log.outcome === 'failed' ? 'offline' : 'problem'}`}>
+                          {log.outcome === 'sent' ? 'ส่งแล้ว' : log.outcome === 'failed' ? 'ไม่สำเร็จ' : 'กำลังส่ง'}
+                        </span>
+                        {log.error && <div className="audit-error-detail">{log.error}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
 
       {showModal && (
@@ -277,32 +409,44 @@ export default function DevicesPage() {
             <h3>{editingId ? 'แก้ไขอุปกรณ์' : 'เพิ่มอุปกรณ์'}</h3>
 
             <form onSubmit={handleSubmit}>
+              {formError && <div className="devices-state error">{formError}</div>}
               <div className="form-grid">
                 <label>
-                  <span>ชื่ออุปกรณ์</span>
+                  <span>ID อุปกรณ์</span>
                   <input
-                    value={form.name}
-                    onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                    required
+                    value={editingDevice?.name || 'สร้างอัตโนมัติเมื่อบันทึก'}
+                    readOnly
                   />
                 </label>
 
                 <label>
-                  <span>ห้อง</span>
+                  <span>อาคาร / ห้อง</span>
                   <select
-                    value={form.room}
-                    onChange={(e) => setForm((prev) => ({ ...prev, room: e.target.value }))}
+                    value={form.roomId}
+                    onChange={(e) => {
+                      const room = rooms.find((item) => item.id === e.target.value);
+                      setForm((prev) => ({
+                        ...prev,
+                        roomId: e.target.value,
+                        room: room?.name || '',
+                      }));
+                    }}
                     required
                   >
                     <option value="">เลือกห้อง</option>
-                    {rooms.map((room) => (
-                      <option key={room.id} value={room.name}>
-                        {room.name}
-                      </option>
+                    {Object.entries(rooms.reduce<Record<string, typeof rooms>>((groups, room) => {
+                      const building = room.building || room.floor || 'ไม่ระบุอาคาร';
+                      (groups[building] ||= []).push(room);
+                      return groups;
+                    }, {})).map(([building, buildingRooms]) => (
+                      <optgroup key={building} label={building}>
+                        {buildingRooms.map((room) => (
+                          <option key={room.id} value={room.id}>
+                            {room.name}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
-                    {!rooms.some((room) => room.name === form.room) && form.room ? (
-                      <option value={form.room}>{form.room}</option>
-                    ) : null}
                   </select>
                 </label>
 
@@ -318,41 +462,14 @@ export default function DevicesPage() {
                   </select>
                 </label>
 
-                <label>
-                  <span>อุณหภูมิ (°C)</span>
-                  <input
-                    type="number"
-                    value={form.temperature}
-                    onChange={(e) => setForm((prev) => ({ ...prev, temperature: Number(e.target.value) }))}
-                  />
-                </label>
-
-                <label>
-                  <span>ความชื้น (%)</span>
-                  <input
-                    type="number"
-                    value={form.humidity}
-                    onChange={(e) => setForm((prev) => ({ ...prev, humidity: Number(e.target.value) }))}
-                  />
-                </label>
-
-                <label>
-                  <span>พลังงาน (kWh)</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={form.power}
-                    onChange={(e) => setForm((prev) => ({ ...prev, power: Number(e.target.value) }))}
-                  />
-                </label>
               </div>
 
               <div className="device-modal-actions">
-                <button type="button" className="secondary-btn" onClick={() => setShowModal(false)}>
+                <button type="button" className="secondary-btn" onClick={() => setShowModal(false)} disabled={savingDevice}>
                   ยกเลิก
                 </button>
-                <button type="submit" className="primary-btn">
-                  {editingId ? 'บันทึก' : 'เพิ่มอุปกรณ์'}
+                <button type="submit" className="primary-btn" disabled={savingDevice}>
+                  {savingDevice ? 'กำลังบันทึก...' : editingId ? 'บันทึก' : 'เพิ่มอุปกรณ์'}
                 </button>
               </div>
             </form>

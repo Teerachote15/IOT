@@ -261,6 +261,46 @@
   font-size: 14px;
 }
 
+.control-audit {
+  margin-top: 22px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+}
+
+.control-audit-heading {
+  margin-bottom: 14px;
+}
+
+.control-audit-heading h2 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 18px;
+}
+
+.control-audit-heading p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.control-audit-wrap {
+  overflow-x: auto;
+}
+
+.control-audit-table {
+  min-width: 760px;
+}
+
+.audit-error-detail {
+  max-width: 300px;
+  margin-top: 4px;
+  color: #991b1b;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .device-modal-backdrop {
   position: fixed;
   inset: 0;

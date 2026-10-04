@@ -122,6 +122,42 @@
   gap: 18px;
 }
 
+.rooms-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.rooms-toolbar label {
+  color: #4b5563;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.rooms-toolbar select {
+  min-width: 220px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px 12px;
+  color: #111827;
+  font-size: 14px;
+}
+
+.building-section {
+  margin-top: 28px;
+}
+
+.building-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  color: #1f2937;
+  font-size: 17px;
+}
+
 .room-card {
   position: relative;
   background: #f3f4f6;
@@ -222,6 +258,14 @@
   color: #b91c1c;
 }
 
+.rooms-empty {
+  padding: 28px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  color: #64748b;
+  text-align: center;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -258,12 +302,29 @@
   font-weight: 600;
 }
 
-.form-row input {
+.form-row input,
+.form-row select {
   width: 100%;
   border: 1px solid #d1d5db;
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 14px;
+  background: #fff;
+}
+
+.building-entry {
+  display: grid;
+  gap: 8px;
+}
+
+.building-mode-button {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  color: #0f766e;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 0;
 }
 
 .modal-actions {

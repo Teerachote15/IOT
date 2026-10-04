@@ -10,7 +10,6 @@ import HistoryPage from './pages/History';
 import RulesPage from './pages/Rules';
 import AlertsPage from './pages/Alerts';
 import LoginPage from './pages/Login';
-import AdminSetupPage from './pages/AdminSetup';
 import { getUserRole, isAdminRole, logout, subscribeToAuth } from './services/auth';
 import './styles.css';
 import './styles/layout.css';
@@ -51,7 +50,6 @@ export default function App() {
   if (!user) {
     return (
       <Routes>
-        <Route path="/admin-setup" element={<AdminSetupPage />} />
         <Route path="*" element={<LoginPage />} />
       </Routes>
     );
