@@ -20,10 +20,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
   String _selectedRange = '24h';
 
   Duration get _rangeDuration => switch (_selectedRange) {
+    '1h' => const Duration(hours: 1),
     '3d' => const Duration(days: 3),
     '7d' => const Duration(days: 7),
     '30d' => const Duration(days: 30),
     _ => const Duration(hours: 24),
+  };
+
+  Duration get _chartInterval => switch (_selectedRange) {
+    '1h' => const Duration(minutes: 1),
+    '24h' => const Duration(minutes: 15),
+    '3d' => const Duration(hours: 1),
+    '7d' => const Duration(hours: 1),
+    '30d' => const Duration(days: 1),
+    _ => const Duration(minutes: 15),
   };
 
   String get _metricLabel => switch (_selectedMetric) {
@@ -150,28 +160,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           b['timestamp'] as num,
                         ),
                       );
-                  final chartValues = filteredHistory
+                  final chartSamples = DBService.bucketHistory(
+                    entries: filteredHistory,
+                    metric: _selectedMetric,
+                    start: rangeStart.millisecondsSinceEpoch,
+                    end: rangeEnd.millisecondsSinceEpoch,
+                    interval: _chartInterval,
+                  );
+                  final chartValues = chartSamples
                       .map((entry) => _asDouble(entry[_selectedMetric]))
                       .toList();
-                  final chartEntries = filteredHistory
-                      .where((entry) => (entry['timestamp'] as num) > 0)
-                      .toList();
-                  final sampleStep = (chartEntries.length / 500).ceil();
-                  final chartSamples = <Map<String, dynamic>>[];
-                  for (
-                    var index = 0;
-                    index < chartEntries.length;
-                    index += sampleStep == 0 ? 1 : sampleStep
-                  ) {
-                    chartSamples.add(chartEntries[index]);
-                  }
-                  if (chartEntries.isNotEmpty &&
-                      chartSamples.last != chartEntries.last) {
-                    chartSamples.add(chartEntries.last);
-                  }
-                  final latestValue = chartEntries.isEmpty
+                  final latestValue = filteredHistory.isEmpty
                       ? null
-                      : _asDouble(chartEntries.last[_selectedMetric]);
+                      : _asDouble(filteredHistory.last[_selectedMetric]);
                   final minimumValue = chartValues.isEmpty
                       ? null
                       : chartValues.reduce((a, b) => a < b ? a : b);
@@ -215,6 +216,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           border: OutlineInputBorder(),
                         ),
                         items: const [
+                          DropdownMenuItem(
+                            value: '1h',
+                            child: Text('1 ชั่วโมง'),
+                          ),
                           DropdownMenuItem(
                             value: '24h',
                             child: Text('24 ชั่วโมง'),
@@ -263,17 +268,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                '${_rangeLabel(_selectedRange)} · ${chartEntries.length} จุดข้อมูล',
+                                '${_rangeLabel(_selectedRange)} · ${filteredHistory.length} จุดข้อมูลจริง',
                                 style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(color: AppColor.secondaryText),
                               ),
                               const SizedBox(height: 14),
-                              if (chartSamples.length < 2)
+                              if (filteredHistory.isEmpty)
                                 const SizedBox(
                                   height: 230,
                                   child: Center(
                                     child: Text(
-                                      'ข้อมูลย้อนหลังยังไม่เพียงพอสำหรับกราฟ',
+                                      'ยังไม่มีข้อมูลย้อนหลังในช่วงเวลานี้',
                                       textAlign: TextAlign.center,
                                     ),
                                   ),
@@ -281,7 +286,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               else
                                 SizedBox(
                                   height: 250,
-                                  child: LineChart(_chartData(chartSamples)),
+                                  child: LineChart(
+                                    _chartData(
+                                      chartSamples,
+                                      rangeStart,
+                                      _rangeDuration,
+                                    ),
+                                  ),
                                 ),
                               const SizedBox(height: 16),
                               Wrap(
@@ -368,10 +379,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return double.tryParse(value?.toString() ?? '') ?? 0;
   }
 
-  LineChartData _chartData(List<Map<String, dynamic>> entries) {
+  LineChartData _chartData(
+    List<Map<String, dynamic>> entries,
+    DateTime rangeStart,
+    Duration rangeDuration,
+  ) {
     final spots = entries.map((entry) {
       final timestamp = (entry['timestamp'] as num).toInt();
-      final x = timestamp / Duration.millisecondsPerHour;
+      final x =
+          (timestamp - rangeStart.millisecondsSinceEpoch) /
+          Duration.millisecondsPerHour;
       return FlSpot(x, _asDouble(entry[_selectedMetric]));
     }).toList();
     spots.sort((a, b) => a.x.compareTo(b.x));
@@ -385,15 +402,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final minY = dataMin - padding;
     final maxY = dataMax + padding;
     final yInterval = (maxY - minY) / 4;
-    final firstTimestamp = spots.first.x;
-    final lastTimestamp = spots.last.x;
-    final dataDurationHours = lastTimestamp - firstTimestamp;
-    final xPadding = dataDurationHours == 0
-        ? 1 / Duration.minutesPerHour
-        : dataDurationHours * 0.05;
-    final minX = firstTimestamp - xPadding;
-    final maxX = lastTimestamp + xPadding;
-    final xInterval = (maxX - minX) / 4;
+    final minX = 0.0;
+    final maxX = rangeDuration.inMinutes / Duration.minutesPerHour;
+    final xInterval = maxX / 4;
 
     return LineChartData(
       minX: minX,
@@ -443,8 +454,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
             reservedSize: 34,
             interval: xInterval,
             getTitlesWidget: (value, meta) {
-              final time = DateTime.fromMillisecondsSinceEpoch(
-                (value * Duration.millisecondsPerHour).round(),
+              final time = rangeStart.add(
+                Duration(
+                  milliseconds: (value * Duration.millisecondsPerHour).round(),
+                ),
               );
               final format = _rangeDuration <= const Duration(days: 1)
                   ? 'HH:mm'
@@ -468,8 +481,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
         handleBuiltInTouches: true,
         touchTooltipData: LineTouchTooltipData(
           getTooltipItems: (touchedSpots) => touchedSpots.map((spot) {
-            final time = DateTime.fromMillisecondsSinceEpoch(
-              (spot.x * Duration.millisecondsPerHour).round(),
+            final time = rangeStart.add(
+              Duration(
+                milliseconds: (spot.x * Duration.millisecondsPerHour).round(),
+              ),
             );
             return LineTooltipItem(
               '${DateFormat('dd/MM HH:mm').format(time)}\n'
@@ -509,6 +524,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   String _rangeLabel(String range) => switch (range) {
+    '1h' => '1 ชั่วโมงล่าสุด',
     '3d' => '3 วันล่าสุด',
     '7d' => '7 วันล่าสุด',
     '30d' => '30 วันล่าสุด',

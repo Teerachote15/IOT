@@ -14,11 +14,13 @@ import {
 } from 'recharts';
 import {
   AlertRecord,
-  Device,
-  DeviceHistoryPoint,
   subscribeToAlerts,
 } from '../services/database';
 import { useAllDevices, useRooms } from '../services/hooks';
+import {
+  buildHistoryChartData,
+  filterDevicesForHistoryRoom,
+} from '../services/historyChart';
 import '../styles/history.css';
 
 const timeOptions = [
@@ -36,118 +38,6 @@ const dataKeys = [
   { key: 'humidity', label: 'ความชื้น', unit: '%', color: '#10b981' },
   { key: 'power', label: 'กำลังไฟ', unit: 'W', color: '#f59e0b' },
 ];
-
-interface HistoryChartPoint {
-  time: string;
-  timestamp: number;
-  temperature: number | null;
-  humidity: number | null;
-  power: number | null;
-}
-
-function buildHistoryData(devices: Device[], selectedRoom: string, hours: number): HistoryChartPoint[] {
-  const filtered = selectedRoom
-    ? devices.filter((device) =>
-        device.roomId === selectedRoom ||
-        (!device.roomId && device.room === selectedRoom)
-      )
-    : devices;
-
-  if (!filtered.length) {
-    return [];
-  }
-
-  const bucketSize = hours <= 1
-    ? 60_000
-    : hours <= 24
-      ? 15 * 60_000
-      : hours <= 168
-        ? 60 * 60_000
-        : 24 * 60 * 60_000;
-  const rangeStart = Date.now() - hours * 60 * 60 * 1000;
-  const buckets = new Map<number, Map<string, {
-    temperature: number[];
-    humidity: number[];
-    power: number[];
-  }>>();
-
-  const now = Date.now();
-  filtered.forEach((device) => {
-    Object.entries(device.history || {}).forEach(([key, entry]: [string, DeviceHistoryPoint]) => {
-      const timestamp = Number(entry.timestamp);
-      if (!Number.isFinite(timestamp) || timestamp < rangeStart || timestamp > now) return;
-      const bucketTimestamp = Math.floor(timestamp / bucketSize) * bucketSize;
-      let deviceBuckets = buckets.get(bucketTimestamp);
-      if (!deviceBuckets) {
-        deviceBuckets = new Map();
-        buckets.set(bucketTimestamp, deviceBuckets);
-      }
-      let readings = deviceBuckets.get(device.id);
-      if (!readings) {
-        readings = { temperature: [], humidity: [], power: [] };
-        deviceBuckets.set(device.id, readings);
-      }
-
-      for (const metric of ['temperature', 'humidity', 'power'] as const) {
-        if (
-          metric === 'power' &&
-          !key.startsWith('pzem_') &&
-          device.sensors?.pzem
-        ) {
-          continue;
-        }
-        const value = entry[metric];
-        if (value == null || !Number.isFinite(Number(value))) continue;
-        readings[metric].push(Number(value));
-      }
-    });
-  });
-
-  return [...buckets.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([timestamp, deviceBuckets]) => {
-      const temperatureValues: number[] = [];
-      const humidityValues: number[] = [];
-      let totalPower = 0;
-      let hasPower = false;
-
-      deviceBuckets.forEach((readings) => {
-        if (readings.temperature.length) {
-          temperatureValues.push(
-            readings.temperature.reduce((sum, value) => sum + value, 0) / readings.temperature.length,
-          );
-        }
-        if (readings.humidity.length) {
-          humidityValues.push(
-            readings.humidity.reduce((sum, value) => sum + value, 0) / readings.humidity.length,
-          );
-        }
-        if (readings.power.length) {
-          hasPower = true;
-          totalPower += readings.power.reduce((sum, value) => sum + value, 0) / readings.power.length;
-        }
-      });
-
-      const average = (values: number[]) => values.length
-        ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1))
-        : null;
-
-      return {
-        timestamp,
-        time: new Date(timestamp).toLocaleString(
-          'th-TH',
-          hours <= 24
-            ? { hour: '2-digit', minute: '2-digit' }
-            : hours > 168
-              ? { day: '2-digit', month: '2-digit' }
-              : { day: '2-digit', month: '2-digit', hour: '2-digit' },
-        ),
-        temperature: average(temperatureValues),
-        humidity: average(humidityValues),
-        power: hasPower ? Number(totalPower.toFixed(1)) : null,
-      };
-    });
-}
 
 export default function HistoryPage() {
   const [searchParams] = useSearchParams();
@@ -184,22 +74,52 @@ export default function HistoryPage() {
     return unsubscribe;
   }, []);
 
-  const chartData = useMemo(
-    () => buildHistoryData(devices, selectedRoom, hours),
-    [devices, selectedRoom, hours]
-  );
-
   const selectedMetric = dataKeys.find((item) => item.key === metric) || dataKeys[0];
   const selectedRoomRecord = rooms.find((room) => room.id === selectedRoom);
   const selectedDevices = useMemo(
-    () => selectedRoom
-      ? devices.filter((device) =>
-          device.roomId === selectedRoom ||
-          (!device.roomId && device.room === selectedRoom)
-        )
-      : devices,
-    [devices, selectedRoom],
+    () =>
+      filterDevicesForHistoryRoom(
+        devices,
+        selectedRoom
+          ? {
+              id: selectedRoomRecord?.id,
+              name: selectedRoomRecord?.name || selectedRoom,
+              building:
+                selectedRoomRecord?.building || selectedRoomRecord?.floor,
+            }
+          : undefined,
+      ),
+    [devices, selectedRoom, selectedRoomRecord],
   );
+  const chartData = useMemo(
+    () => buildHistoryChartData(selectedDevices, hours),
+    [selectedDevices, hours],
+  );
+  const selectedMetricChartData = useMemo(
+    () =>
+      chartData.map((point) => ({
+        ...point,
+        value:
+          metric === 'temperature'
+            ? point.temperature
+            : metric === 'humidity'
+              ? point.humidity
+              : point.power,
+      })),
+    [chartData, metric],
+  );
+  const hasSelectedMetricData = metric === 'overview'
+    ? chartData.some(
+        (point) =>
+          point.hasTemperatureData ||
+          point.hasHumidityData ||
+          point.hasPowerData,
+      )
+    : chartData.some((point) => {
+        if (metric === 'temperature') return point.hasTemperatureData;
+        if (metric === 'humidity') return point.hasHumidityData;
+        return point.hasPowerData;
+      });
   const now = Date.now();
   const rangeStart = now - hours * 60 * 60 * 1000;
   const selectedDeviceIds = useMemo(
@@ -222,7 +142,7 @@ export default function HistoryPage() {
     [alerts, devices, now, rangeStart, selectedDeviceIds, selectedRoom, selectedRoomRecord],
   );
   const timeline = useMemo(() => {
-    const sensorRows = onlyAlerts ? [] : chartData.map((row) => ({
+    const sensorRows = onlyAlerts ? [] : chartData.filter((row) => row.hasData).map((row) => ({
       kind: 'sensor' as const,
       key: `sensor-${row.timestamp}`,
       timestamp: row.timestamp,
@@ -310,9 +230,16 @@ export default function HistoryPage() {
         {!loading && (
           <>
             <div className="history-chart-wrap">
-              {metric === 'overview' ? (
+              {!hasSelectedMetricData ? (
+                <div className="history-state">
+                  ไม่มีข้อมูล{metric === 'overview' ? 'ย้อนหลัง' : selectedMetric.label}ในช่วงเวลาที่เลือก
+                </div>
+              ) : metric === 'overview' ? (
                 <ResponsiveContainer width="100%" height={340}>
-                  <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                  <LineChart
+                    data={chartData}
+                    margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+                  >
                     <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
                     <XAxis dataKey="time" tickLine={false} axisLine={false} minTickGap={24} />
                     <YAxis
@@ -351,6 +278,9 @@ export default function HistoryPage() {
                       strokeWidth={2}
                       dot={false}
                       connectNulls
+                      isAnimationActive
+                      animationDuration={700}
+                      animationEasing="ease-in-out"
                     />
                     <Line
                       yAxisId="sensor"
@@ -361,6 +291,9 @@ export default function HistoryPage() {
                       strokeWidth={2}
                       dot={false}
                       connectNulls
+                      isAnimationActive
+                      animationDuration={700}
+                      animationEasing="ease-in-out"
                     />
                     <Line
                       yAxisId="power"
@@ -371,12 +304,18 @@ export default function HistoryPage() {
                       strokeWidth={2}
                       dot={false}
                       connectNulls
+                      isAnimationActive
+                      animationDuration={700}
+                      animationEasing="ease-in-out"
                     />
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
                 <ResponsiveContainer width="100%" height={340}>
-                  <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                  <AreaChart
+                    data={selectedMetricChartData}
+                    margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+                  >
                     <defs>
                       <linearGradient id="metricFill" x1="0" x2="0" y1="0" y2="1">
                         <stop offset="5%" stopColor={selectedMetric.color} stopOpacity={0.6} />
@@ -401,12 +340,15 @@ export default function HistoryPage() {
                     />
                     <Area
                       type="monotone"
-                      dataKey={metric}
+                      dataKey="value"
                       stroke={selectedMetric.color}
                       strokeWidth={3}
                       fill="url(#metricFill)"
                       activeDot={{ r: 6 }}
                       connectNulls
+                      isAnimationActive
+                      animationDuration={700}
+                      animationEasing="ease-in-out"
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -456,9 +398,9 @@ export default function HistoryPage() {
                         <td>{new Date(item.timestamp).toLocaleString('th-TH')}</td>
                         {item.kind === 'sensor' ? (
                           <>
-                            <td>{item.row.temperature == null ? '—' : `${item.row.temperature}°C`}</td>
-                            <td>{item.row.humidity == null ? '—' : `${item.row.humidity}%`}</td>
-                            <td>{item.row.power == null ? '—' : `${item.row.power} W`}</td>
+                            <td>{item.row.hasTemperatureData ? `${item.row.temperature}°C` : '—'}</td>
+                            <td>{item.row.hasHumidityData ? `${item.row.humidity}%` : '—'}</td>
+                            <td>{item.row.hasPowerData ? `${item.row.power} W` : '—'}</td>
                             <td>ค่าที่บันทึก</td>
                             <td>—</td>
                           </>

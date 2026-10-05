@@ -2,6 +2,49 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/services/db_service.dart';
 
 void main() {
+  group('DBService.bucketHistory', () {
+    const start = 1000000;
+    const interval = Duration(minutes: 15);
+    final intervalMs = interval.inMilliseconds;
+
+    test('fills missing time buckets with zero', () {
+      final buckets = DBService.bucketHistory(
+        entries: [
+          {'timestamp': start + 1000, 'temperature': 20.5},
+          {'timestamp': start + intervalMs * 2 + 1000, 'temperature': 22.5},
+        ],
+        metric: 'temperature',
+        start: start,
+        end: start + intervalMs * 3,
+        interval: interval,
+      );
+
+      expect(buckets, hasLength(3));
+      expect(buckets.map((bucket) => bucket['temperature']), [20.5, 0, 22.5]);
+      expect(buckets.map((bucket) => bucket['hasData']), [true, false, true]);
+    });
+
+    test(
+      'averages readings in the same bucket and ignores outside readings',
+      () {
+        final buckets = DBService.bucketHistory(
+          entries: [
+            {'timestamp': start - 1, 'power': 100},
+            {'timestamp': start + 1000, 'power': 20},
+            {'timestamp': start + 2000, 'power': 40},
+            {'timestamp': start + intervalMs * 2, 'power': 500},
+          ],
+          metric: 'power',
+          start: start,
+          end: start + intervalMs * 2,
+          interval: interval,
+        );
+
+        expect(buckets.map((bucket) => bucket['power']), [30, 0]);
+      },
+    );
+  });
+
   group('DBService.normalizeTimestamp', () {
     test('converts Unix seconds to milliseconds', () {
       expect(DBService.normalizeTimestamp(1791115200), 1791115200000);

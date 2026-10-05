@@ -9,6 +9,7 @@ import {
   YAxis,
 } from 'recharts';
 import { Device } from '../services/database';
+import { buildHistoryChartData } from '../services/historyChart';
 import '../styles/chart.css';
 
 interface TemperatureChartProps {
@@ -29,73 +30,30 @@ const rangeOptions: Array<[Range, string]> = [
 export default function TemperatureChart({ devices }: TemperatureChartProps) {
   const [metric, setMetric] = useState<Metric>('temperature');
   const [range, setRange] = useState<Range>('day');
-  const rangeMs = range === 'hour'
-    ? 60 * 60 * 1000
+  const rangeHours = range === 'hour'
+    ? 1
     : range === 'day'
-      ? 24 * 60 * 60 * 1000
+      ? 24
       : range === 'threeDays'
-        ? 3 * 24 * 60 * 60 * 1000
+        ? 72
         : range === 'week'
-          ? 7 * 24 * 60 * 60 * 1000
-          : 30 * 24 * 60 * 60 * 1000;
+          ? 168
+          : 720;
 
   const chartData = useMemo(() => {
-    const now = Date.now();
-    const rangeStart = now - rangeMs;
-    const bucketMs = range === 'hour'
-      ? 60 * 1000
-      : range === 'month'
-        ? 24 * 60 * 60 * 1000
-        : range === 'week'
-          ? 60 * 60 * 1000
-          : 15 * 60 * 1000;
-    const buckets = new Map<number, Map<string, number[]>>();
-
-    devices.forEach((device) => {
-      Object.values(device.history || {}).forEach((entry) => {
-        const timestamp = Number(entry.timestamp);
-        const reading = Number(entry[metric]);
-        if (
-          !Number.isFinite(timestamp) ||
-          timestamp < rangeStart ||
-          timestamp > now ||
-          entry[metric] == null ||
-          !Number.isFinite(reading)
-        ) {
-          return;
-        }
-        const bucket = Math.floor(timestamp / bucketMs) * bucketMs;
-        const deviceValues = buckets.get(bucket) || new Map<string, number[]>();
-        const values = deviceValues.get(device.id) || [];
-        values.push(reading);
-        deviceValues.set(device.id, values);
-        buckets.set(bucket, deviceValues);
-      });
-    });
-
-    return [...buckets.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([timestamp, deviceValues]) => {
-        const deviceAverages = [...deviceValues.values()].map(
-          (readings) => readings.reduce((sum, reading) => sum + reading, 0) / readings.length,
-        );
-        const average = deviceAverages.reduce((sum, value) => sum + value, 0) / deviceAverages.length;
-        return {
-          timestamp,
-          time: new Date(timestamp).toLocaleString(
-            'th-TH',
-            range === 'month'
-              ? { day: '2-digit', month: '2-digit' }
-              : range === 'week' || range === 'threeDays'
-                ? { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }
-                : range === 'day'
-                  ? { hour: '2-digit', minute: '2-digit' }
-                  : { minute: '2-digit' },
-          ),
-          reading: Number(average.toFixed(1)),
-        };
-      });
-  }, [devices, metric, range, rangeMs]);
+    const history = buildHistoryChartData(devices, rangeHours);
+    const hasMetricData = history.some((point) =>
+      metric === 'temperature'
+        ? point.hasTemperatureData
+        : point.hasHumidityData,
+    );
+    if (!hasMetricData) return [];
+    return history.map((point) => ({
+        timestamp: point.timestamp,
+        time: point.time,
+        reading: point[metric] ?? 0,
+      }));
+  }, [devices, metric, rangeHours]);
 
   const isTemperature = metric === 'temperature';
   const title = isTemperature ? 'อุณหภูมิ' : 'ความชื้น';

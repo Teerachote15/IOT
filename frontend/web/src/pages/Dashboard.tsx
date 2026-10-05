@@ -7,6 +7,7 @@ import PowerChart from '../components/PowerChart';
 import DeviceTable from '../components/DeviceTable';
 import { useAllDevices, useRooms } from '../services/hooks';
 import { Device, DeviceHistoryPoint, isDeviceDataStale } from '../services/database';
+import { filterDevicesForHistoryRoom } from '../services/historyChart';
 import '../styles/dashboard.css';
 
 function getEnergyToday(devices: Device[]) {
@@ -75,16 +76,25 @@ export default function Dashboard() {
     const interval = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(interval);
   }, []);
+  useEffect(() => {
+    if (!rooms.length) {
+      setSelectedRoomId('');
+      return;
+    }
+    if (!rooms.some((room) => room.id === selectedRoomId)) {
+      setSelectedRoomId(rooms[0].id || '');
+    }
+  }, [rooms, selectedRoomId]);
   const selectedRoom = rooms.find((room) => room.id === selectedRoomId);
   const roomDevices = useMemo(
-    () => selectedRoom
-      ? devices.filter((device) =>
-          device.roomId === selectedRoom.id ||
-          (!device.roomId &&
-            device.room === selectedRoom.name &&
-            (!device.building || device.building === (selectedRoom.building || selectedRoom.floor)))
-        )
-      : devices,
+    () =>
+      selectedRoom
+        ? filterDevicesForHistoryRoom(devices, {
+            id: selectedRoom.id,
+            name: selectedRoom.name,
+            building: selectedRoom.building || selectedRoom.floor,
+          })
+        : [],
     [devices, selectedRoom]
   );
   const onlineDeviceList = useMemo(
@@ -139,7 +149,7 @@ export default function Dashboard() {
             <p>
               {selectedRoom
                 ? `${selectedRoom.building || selectedRoom.floor || 'ไม่ระบุอาคาร'} · ${selectedRoom.name}`
-                : 'สถานะและข้อมูลเซนเซอร์ของทุกห้อง'}
+                : 'ยังไม่มีห้องให้แสดง'}
             </p>
           </div>
           <div className="dashboard-room-filter">
@@ -149,7 +159,11 @@ export default function Dashboard() {
               value={selectedRoomId}
               onChange={(event) => setSelectedRoomId(event.target.value)}
             >
-              <option value="">ภาพรวมทุกห้อง</option>
+              {!rooms.length && (
+                <option value="" disabled>
+                  ไม่มีห้องที่ตั้งค่าไว้
+                </option>
+              )}
               {Object.entries(roomsByBuilding).map(([building, buildingRooms]) => (
                 <optgroup key={building} label={building}>
                   {buildingRooms.map((room) => (

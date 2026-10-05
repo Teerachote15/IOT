@@ -116,6 +116,49 @@ class DBService {
         : entries.sublist(entries.length - limit);
   }
 
+  static List<Map<String, dynamic>> bucketHistory({
+    required List<Map<String, dynamic>> entries,
+    required String metric,
+    required int start,
+    required int end,
+    required Duration interval,
+  }) {
+    if (interval.inMilliseconds <= 0 || end <= start) return [];
+    final intervalMs = interval.inMilliseconds;
+    final bucketCount = ((end - start) / intervalMs).ceil();
+    final valuesByBucket = List<List<double>>.generate(
+      bucketCount,
+      (_) => <double>[],
+    );
+
+    for (final entry in entries) {
+      final timestamp = entry['timestamp'];
+      final value = entry[metric];
+      if (timestamp is! num ||
+          timestamp < start ||
+          timestamp >= end ||
+          value is! num) {
+        continue;
+      }
+      final index = ((timestamp - start) / intervalMs).floor();
+      if (index < 0 || index >= bucketCount) continue;
+      valuesByBucket[index].add(value.toDouble());
+    }
+
+    return List<Map<String, dynamic>>.generate(bucketCount, (index) {
+      final readings = valuesByBucket[index];
+      final hasData = readings.isNotEmpty;
+      final average = hasData
+          ? readings.reduce((a, b) => a + b) / readings.length
+          : 0.0;
+      return {
+        'timestamp': start + index * intervalMs,
+        metric: average,
+        'hasData': hasData,
+      };
+    });
+  }
+
   static double _number(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? 0;

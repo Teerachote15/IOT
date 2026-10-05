@@ -9,6 +9,7 @@ import {
   YAxis,
 } from 'recharts';
 import { Device } from '../services/database';
+import { buildHistoryChartData } from '../services/historyChart';
 import '../styles/chart.css';
 
 interface PowerChartProps {
@@ -17,73 +18,24 @@ interface PowerChartProps {
 
 export default function PowerChart({ devices }: PowerChartProps) {
   const [range, setRange] = useState<'hour' | 'day' | 'threeDays' | 'week' | 'month'>('day');
+  const rangeHours = range === 'hour'
+    ? 1
+    : range === 'day'
+      ? 24
+      : range === 'threeDays'
+        ? 72
+        : range === 'week'
+          ? 168
+          : 720;
   const chartData = useMemo(() => {
-    const now = Date.now();
-    const rangeMs = range === 'hour'
-      ? 60 * 60 * 1000
-      : range === 'day'
-        ? 24 * 60 * 60 * 1000
-        : range === 'threeDays'
-          ? 3 * 24 * 60 * 60 * 1000
-          : range === 'week'
-            ? 7 * 24 * 60 * 60 * 1000
-            : 30 * 24 * 60 * 60 * 1000;
-    const bucketMs = range === 'hour'
-      ? 60 * 1000
-      : range === 'month'
-        ? 24 * 60 * 60 * 1000
-        : range === 'day' || range === 'threeDays'
-        ? 15 * 60 * 1000
-        : 60 * 60 * 1000;
-    const buckets = new Map<number, Map<string, number[]>>();
-
-    devices.forEach((device) => {
-      if (!device.sensors?.pzem && !device.hasRelay) return;
-      Object.values(device.history || {}).forEach((point) => {
-        const timestamp = Number(point.timestamp);
-        const power = Number(point.power);
-        if (
-          !Number.isFinite(timestamp) ||
-          timestamp < now - rangeMs ||
-          timestamp > now ||
-          !Number.isFinite(power) ||
-          power < 0
-        ) {
-          return;
-        }
-        const bucket = Math.floor(timestamp / bucketMs) * bucketMs;
-        const deviceValues = buckets.get(bucket) || new Map<string, number[]>();
-        const values = deviceValues.get(device.id) || [];
-        values.push(power);
-        deviceValues.set(device.id, values);
-        buckets.set(bucket, deviceValues);
-      });
-    });
-
-    return [...buckets.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([timestamp, deviceValues]) => {
-        const totalPower = [...deviceValues.values()].reduce(
-          (total, readings) =>
-            total + readings.reduce((sum, reading) => sum + reading, 0) / readings.length,
-          0,
-        );
-        return {
-          timestamp,
-          time: new Date(timestamp).toLocaleString(
-            'th-TH',
-            range === 'month'
-              ? { day: '2-digit', month: '2-digit' }
-              : range === 'week' || range === 'threeDays'
-                ? { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }
-                : range === 'day'
-                  ? { hour: '2-digit', minute: '2-digit' }
-                  : { minute: '2-digit' },
-          ),
-          power: Number(totalPower.toFixed(1)),
-        };
-      });
-  }, [devices, range]);
+    const history = buildHistoryChartData(devices, rangeHours);
+    if (!history.some((point) => point.hasPowerData)) return [];
+    return history.map((point) => ({
+          timestamp: point.timestamp,
+          time: point.time,
+          power: point.power ?? 0,
+        }));
+  }, [devices, rangeHours]);
 
   return (
     <div className="chart-card power-chart">
